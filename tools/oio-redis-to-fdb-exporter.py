@@ -167,6 +167,7 @@ def hash_redis():
         infos_account.pop('replication_enabled')
         print('info_account:', infos_account)
         sorted_account = dict(sorted(infos_account.items()))
+        sorted_account['ctime'] = format(float(sorted_account['ctime']), '.6f')
         acct_fields = '-'.join([f'{key}-{value}' for key, value in
                                sorted_account.items()])
         acct_to_hash = '-'.join([acct, acct_fields])
@@ -195,13 +196,15 @@ def hash_redis():
             ct_fields = []
             print('sorted_ct:', sorted_ct)
             for k, v in sorted_ct.items():
-                print(k, v)
-                if isinstance(v, int):
+                if k == bytes('mtime', 'utf-8'):
+                    modif_float =  format(float(v), '.6f')
+                    ct_fields.append('-'.join([k.decode('utf-8') ,
+                    str(modif_float)]))
+                elif isinstance(v, int):
                     ct_fields.append('-'.join([ k.decode('utf-8') ,str(v)]))
                 else:
                     ct_fields.append('-'.join([k.decode('utf-8') ,
                     v.decode('utf-8')]))
-
             #ct_fields = [f'{key}-{value}' for key, value in sorted_ct.items()]
             print('ct_fields:', ct_fields)
             ct_to_hash = '-'.join([str(x) for x in ct_fields])
@@ -237,12 +240,16 @@ def hash_redis():
                 print('bk_infos:', bucket_name, sorted_bk_infos)
                 bk_fields =[]
                 for k, v in sorted_bk_infos.items():
-                    print(k, v)
-                    if isinstance(v, int):
+                    if k == bytes('mtime', 'utf-8'):
+                        modif_float =  format(float(v), '.6f')
+                        bk_fields.append('-'.join([k.decode('utf-8') ,
+                        str(modif_float)]))
+                    elif isinstance(v, int):
                         bk_fields.append('-'.join([ k.decode('utf-8') ,str(v)]))
                     else:
                         bk_fields.append('-'.join([k.decode('utf-8') ,
                         v.decode('utf-8')]))
+
                 bucket_inf_list = '-'.join([str(x) for x in bk_fields])
                 #print('bklist:', owner, buckets_to_hash, bucket_inf_list)
                 buckets_to_hash = '-'.join(['owner', owner, buckets_to_hash,
@@ -292,6 +299,8 @@ def hash_fdb():
         print('info_account:', infos_account)
 
         sorted_account = dict(sorted(infos_account.items()))
+        sorted_account['ctime'] = format(float(sorted_account['ctime']), '.6f')
+
         acct_fields = '-'.join([f'{key}-{value}' for key, value in
                                 sorted_account.items()])
         acct_to_hash = '-'.join([acct, acct_fields])
@@ -317,6 +326,9 @@ def hash_fdb():
 
             # print('ct:', ct_infos)
             sorted_ct = dict(sorted(ct_infos.items()))
+            # print('ct:', ct_infos)
+            modif_value = sorted_ct['mtime']
+            sorted_ct['mtime'] =  format(float(modif_value), '.6f')
 
             ct_fields = [f'{key}-{value}' for key, value in sorted_ct.items()]
             # print('ct_fields:', ct_fields)
@@ -356,8 +368,16 @@ def hash_fdb():
                     bk_infos['replication_enabled'] = False
                 bk_fields =[]
                 for k, v in bk_infos.items():
-                    print(k, v)
-                    bk_fields.append('-'.join([k , str(v)]))
+                    if k == 'mtime':
+                        modif_float = v
+                        modif_float = format(float(v), '.6f')
+                        bk_fields.append('-'.join([k ,
+                            str(modif_float)]))
+                    elif isinstance(v, int):
+                        bk_fields.append('-'.join([ k ,str(v)]))
+                    else:
+                        bk_fields.append('-'.join([k ,
+                        str(v)]))
                 bucket_inf_list = '-'.join([str(x) for x in bk_fields])
                 # print(owner, buckets_to_hash, bucket_inf_list)
                 buckets_to_hash = '-'.join(['owner', owner, buckets_to_hash,
