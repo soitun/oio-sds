@@ -2157,9 +2157,15 @@ def generate(options):
     env.update({'CLUSTERFILE': cluster_file})
 
     fdbserver = shutil.which('fdbserver')
-    backup_agent = shutil.which('backup_agent', path=PATH + ":" + '/usr/lib/foundationdb/backup_agent')
+    backup_agent = shutil.which('backup_agent', path=':'.join([
+        PATH,
+        '/usr/lib/foundationdb/backup_agent',
+        '/opt/obsto-foundationdb/lib/foundationdb/backup_agent']))
     fdbcli = shutil.which('fdbcli')
-    fdbmonitor = shutil.which('fdbmonitor', path=PATH + ":" + '/usr/lib/foundationdb')
+    fdbmonitor = shutil.which('fdbmonitor', path=':'.join([
+        PATH,
+        '/usr/lib/foundationdb',
+        '/opt/obsto-foundationdb/lib/foundationdb']))
 
     env.update({'fdbserver': fdbserver})
     env.update({'backup_agent': backup_agent})

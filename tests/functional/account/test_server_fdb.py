@@ -43,7 +43,7 @@ class TestAccountServerBase(BaseTestCase):
             self.fdb_file = CommonFdb.DEFAULT_FDB
         else:
             self.fdb_file = \
-                str(Path.home()) + '/.oio/sds/conf/OPENIO-fdb.cluster'
+                '%s/.oio/sds/conf/%s-fdb.cluster' % (str(Path.home()), self.ns)
         conf = {'namespace': self.ns, 'iam.connection': iam_cnxstr}
         conf['backend_type'] = 'fdb'
         conf['fdb_file'] = self.fdb_file
