@@ -19,24 +19,25 @@ jobs:
           echo "deb [trusted=yes] http://read:{{.cds.proj.private_ovh_objectstorage_openio_read_password}}@last-private-ovh-objectstorage-openio.snap-priv.mirrors.ovh.net/ubuntu focal/main main" >> /etc/apt/sources.list.d/obsto.list
           echo "deb [trusted=yes] http://last-public-ovh-pcs.snap.mirrors.ovh.net/ubuntu focal main" >> /etc/apt/sources.list.d/obsto.list
           apt update
-          apt install -y $(tr '\n' ' ' < .cds/deps-ubuntu-focal.txt) {{ .cds.env.GO_PACKAGE }} {{ .cds.env.PYTHON_PACKAGE }} {{ .cds.env.ZOOKEEPER_PACKAGE }}
+          apt install -y $(tr '\n' ' ' < .cds/deps-ubuntu-focal.txt)
           systemctl stop apache2.service redis.service
           systemctl disable apache2.service redis.service
+
+          # Retrieve installed OVH flavoured packages
+          apt list --installed 2>/dev/null | cut -d'/' -f1 | grep ".*-ovh[[:digit:]]*" > /tmp/installed-packages.out
+          cat /tmp/installed-packages.out
+          cat /tmp/installed-packages.out | xargs -I package sh -c 'export current=package; ln -s /opt/${current} /opt/${current%%-[0-9].*}'
+
           # Configure environment
-          echo "export PATH=/opt/{{ .cds.env.GO_PACKAGE }}/bin:/opt/{{ .cds.env.ZOOKEEPER_PACKAGE }}/bin:/opt/{{ .cds.env.PYTHON_PACKAGE }}/bin:$PATH" > $HOME/oio-env.sh
-          echo "export ZOOBINDIR=/opt/{{ .cds.env.ZOOKEEPER_PACKAGE }}/bin"  >> $HOME/oio-env.sh
-          echo "export LD_LIBRARY_PATH=/opt/{{ .cds.env.GO_PACKAGE }}/lib:/opt/{{ .cds.env.PYTHON_PACKAGE }}/lib:/opt/{{ .cds.env.ZOOKEEPER_PACKAGE }}/lib:/tmp/oio/lib" >> $HOME/oio-env.sh
-          echo "export PYTHONPATH=$(find /opt/{{ .cds.env.PYTHON_PACKAGE }}/lib/ -name 'site-packages')" >> $HOME/oio-env.sh
+          echo "export PATH=/opt/go/bin:/opt/oio-zookeeper/bin:/opt/python/bin:/opt/obsto-foundationdb/bin:/opt/obsto-foundationdb/sbin:$PATH" > $HOME/oio-env.sh
+          echo "export ZOOBINDIR=/opt/oio-zookeeper/bin"  >> $HOME/oio-env.sh
+          echo "export LD_LIBRARY_PATH=/opt/go/lib:/opt/python/lib:/opt/oio-zookeeper/lib:/opt/obsto-foundationdb/lib:/tmp/oio/lib" >> $HOME/oio-env.sh
+          echo "export PYTHONPATH=$(find /opt/python/lib/ -name 'site-packages')" >> $HOME/oio-env.sh
           source $HOME/oio-env.sh
           mkdir /tmp/oio
           virtualenv -p /opt/{{ .cds.env.PYTHON_PACKAGE }}/bin/python3 $HOME/oiovenv
           . $HOME/oiovenv/bin/activate
           pip install --upgrade pip setuptools virtualenv tox -r test-requirements.txt
-          wget -q https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          wget -q https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
-          dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb foundationdb-server_${FDB_VERSION}-1_amd64.deb
-          systemctl stop foundationdb.service
-          systemctl disable foundationdb.service
 
       - name: Run fast tests
         script:

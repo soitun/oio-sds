@@ -48,12 +48,14 @@ class TestAccountBackend(BaseTestCase):
         if os.path.exists(CommonFdb.DEFAULT_FDB):
             fdb_file = CommonFdb.DEFAULT_FDB
         else:
-            fdb_file = str(Path.home())+'/.oio/sds/conf/OPENIO-fdb.cluster'
+            fdb_file = \
+                '%s/.oio/sds/conf/%s-fdb.cluster' % (str(Path.home()), self.ns)
         self.account_conf = {
                 'fdb_file': fdb_file}
         self.backend = AccountBackendFdb(self.account_conf, logger)
-        self.backend.init_db(None)
+        self.backend.init_db()
         self.backend.db.clear_range(b'\x00', b'\xfe')
+        self.backend.db
         self.beanstalkd0.drain_tube('oio-preserved')
         self.maxDiff = None
 
