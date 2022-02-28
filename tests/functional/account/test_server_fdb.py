@@ -50,9 +50,11 @@ class TestAccountServerBase(BaseTestCase):
         self.account_id = 'test'
         self.acct_app = create_app(conf)
 
+        self.acct_app.backend.open_db(None)
+        self.acct_app.iam.open_db(None)
+        self.acct_app.backend.db.clear_range(b'\x00', b'\xfe')
         self.acct_app.backend.init_db(None)
         self.acct_app.iam.init_db(None)
-        self.acct_app.backend.db.clear_range(b'\x00', b'\xfe')
         """
         main_directory= self.acct_app.backend.namespace
         sub_dirs = main_directory.list(self.acct_app.backend.db)

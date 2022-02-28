@@ -77,22 +77,27 @@ class AccountBackendFdb(object):
     # Timeout for bucket reservation
     DEFAULT_BUCKET_RESERVATION_TIMEOUT = 30
 
-    def init_db(self, event_model='gevent'):
+    def open_db(self, event_model='gevent'):
         """
-        This method makes connexion to fdb database. It could be called
+        This method makes connection to fdb database. It could be called
         any time in mono process, but in case we fork processes it should be
         called after forking in gunicorn.
         This is the reason why this task is not done inside constructor.
         """
-        self.fdb_file = self.conf.get('fdb_file',
-                                      CommonFdb.DEFAULT_FDB)
         try:
             if self.db is None:
+                self.fdb_file = self.conf.get('fdb_file',
+                                              CommonFdb.DEFAULT_FDB)
                 self.db = fdb.open(self.fdb_file, event_model=event_model)
         except Exception as exc:
             self.logger.error("can't open fdb file: %s exception %s",
                               self.fdb_file, exc)
             raise
+
+    def init_db(self, event_model='gevent'):
+        # Ensure the database connection is ready
+        self.open_db(event_model)
+
         try:
             self.namespace = fdb.directory.create_or_open(
                                     self.db, (self.main_namespace_name,))
