@@ -1,4 +1,5 @@
 # Copyright (C) 2017-2019 OpenIO SAS, as part of OpenIO SDS
+# Copyright (C) 2022 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -85,6 +86,8 @@ def handle_container_not_found(fnc):
         try:
             return fnc(self, account, container, *args, **kwargs)
         except NotFound as err:
+            if not container:
+                container = kwargs.get('cid')
             err.message = "Container '%s' does not exist." % container
             reraise(NoSuchContainer, err)
     return _wrapped
@@ -103,6 +106,8 @@ def handle_object_not_found(fnc):
             return fnc(self, account, container, obj, *args, **kwargs)
         except NotFound as err:
             if err.status in (406, 431):
+                if not container:
+                    container = kwargs.get('cid')
                 err.message = "Container '%s' does not exist." % container
                 reraise(NoSuchContainer, err)
             else:

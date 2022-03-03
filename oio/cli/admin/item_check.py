@@ -1,5 +1,5 @@
 # Copyright (C) 2019-2020 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2021 OVH SAS
+# Copyright (C) 2021-2022 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -179,9 +179,11 @@ class ObjectCheck(ObjectCommandMixin, RecursiveCheckCommand):
         return parser
 
     def _take_action(self, parsed_args):
-        account, _, objects = self.resolve_objects(self.app, parsed_args)
-        for container, obj_name, version in objects:
-            target = Target(account, container, obj_name, version=version)
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
+        for obj in parsed_args.objects:
+            target = Target(account, container, obj,
+                            version=parsed_args.object_version)
             self.checker.check(target, parsed_args.depth)
         return self._format_results()
 

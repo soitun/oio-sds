@@ -21,7 +21,8 @@ from oio.cli import Lister, ShowOne
 from oio.common.easy_value import int_value
 from oio.common.utils import cid_from_name
 from oio.container.sharding import ContainerSharding
-from oio.common.constants import M2_PROP_OBJECTS, M2_PROP_SHARDING_STATE, \
+from oio.common.constants import M2_PROP_ACCOUNT_NAME, \
+    M2_PROP_CONTAINER_NAME, M2_PROP_OBJECTS, M2_PROP_SHARDING_STATE, \
     M2_PROP_SHARDING_TIMESTAMP, SHARDING_STATE_NAME
 
 
@@ -42,18 +43,27 @@ class ContainerShardingCommandMixin(object):
             action='store_true'
         )
 
-    def account_and_container(self, parsed_args):
+    def resolve_container(self, app, parsed_args, name=False):
         """
-        Get account and container from parsed args.
+        Get CID (or account and container name) from parsed args.
 
         Resolve a CID into account and container name if required.
         """
         if parsed_args.is_cid:
-            acct, cont = self.app.client_manager.storage.resolve_cid(
-                parsed_args.container)
-            self.app.client_manager._account = acct
-            return acct, cont
-        return self.app.client_manager.account, parsed_args.container
+            account = None
+            container = None
+            cid = parsed_args.container
+            if name:
+                account, container = \
+                    app.client_manager.storage.resolve_cid(cid)
+        else:
+            account = app.client_manager.account
+            container = parsed_args.container
+            cid = cid_from_name(account, container)
+            if not name:
+                account = None
+                container = None
+        return account, container, cid
 
 
 class CleanContainerSharding(ContainerShardingCommandMixin, Lister):
@@ -77,12 +87,12 @@ class CleanContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger)
         container_sharding.clean_container(
-            self.app.client_manager.account, parsed_args.container,
-            attempts=parsed_args.attempts)
+            None, None, cid=cid, attempts=parsed_args.attempts)
         return ('Status', ), [('Ok', )]
 
 
@@ -157,18 +167,18 @@ class FindContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         strategy, strategy_params = self.prepare_startegy(parsed_args)
-
         container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger)
         if parsed_args.all:
             found_shards = container_sharding.find_all_shards(
-                self.app.client_manager.account, parsed_args.container,
+                None, None, root_cid=cid,
                 strategy=strategy, strategy_params=strategy_params)
         else:
             found_shards = container_sharding.find_shards(
-                self.app.client_manager.account, parsed_args.container,
+                None, None, cid=cid,
                 strategy=strategy, strategy_params=strategy_params)
 
         columns = ('Index', 'Lower', 'Upper', 'Count')
@@ -262,6 +272,8 @@ class ReplaceContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         if parsed_args.from_file:
             with open(parsed_args.shards, 'r') as file_:
                 new_shards = file_.read()
@@ -279,12 +291,10 @@ class ReplaceContainerSharding(ContainerShardingCommandMixin, Lister):
         new_shards = container_sharding.format_shards(new_shards, are_new=True)
         if parsed_args.all:
             modified = container_sharding.replace_all_shards(
-                self.app.client_manager.account, parsed_args.container,
-                new_shards, enable=parsed_args.enable)
+                account, container, new_shards, enable=parsed_args.enable)
         else:
             modified = container_sharding.replace_shard(
-                self.app.client_manager.account, parsed_args.container,
-                new_shards, enable=parsed_args.enable)
+                account, container, new_shards, enable=parsed_args.enable)
 
         return ('Modified', ), [(str(modified), )]
 
@@ -300,6 +310,7 @@ class FindAndReplaceContainerSharding(ContainerShardingCommandMixin, Lister):
     def get_parser(self, prog_name):
         parser = super(FindAndReplaceContainerSharding, self).get_parser(
             prog_name)
+
         self.patch_parser_container_sharding(parser)
         parser = FindContainerSharding.patch_parser(parser)
         parser.add_argument(
@@ -358,6 +369,8 @@ class FindAndReplaceContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         strategy, strategy_params = FindContainerSharding.prepare_startegy(
             parsed_args)
 
@@ -371,17 +384,16 @@ class FindAndReplaceContainerSharding(ContainerShardingCommandMixin, Lister):
             logger=self.app.client_manager.logger)
         if parsed_args.all:
             found_shards = container_sharding.find_all_shards(
-                self.app.client_manager.account, parsed_args.container,
+                account, container,
                 strategy=strategy, strategy_params=strategy_params)
             modified = container_sharding.replace_all_shards(
-                self.app.client_manager.account, parsed_args.container,
-                found_shards, enable=parsed_args.enable)
+                account, container, found_shards, enable=parsed_args.enable)
         else:
             found_shards = container_sharding.find_shards(
-                self.app.client_manager.account, parsed_args.container,
+                account, container,
                 strategy=strategy, strategy_params=strategy_params)
             modified = container_sharding.replace_shard(
-                self.app.client_manager.account, parsed_args.container,
+                account, container,
                 found_shards, enable=parsed_args.enable)
 
         return ('Modified', ), [(str(modified), )]
@@ -413,15 +425,14 @@ class ShrinkContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         modified = False
         container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger)
         shards = container_sharding.format_shards(
             parsed_args.shards, partial=True)
-        root_cid = cid_from_name(self.app.client_manager.account,
-                                 parsed_args.container)
-        modified = container_sharding.shrink_shards(shards, root_cid=root_cid)
+        modified = container_sharding.shrink_shards(shards, root_cid=cid)
 
         return ('Modified', ), [(str(modified), )]
 
@@ -452,21 +463,20 @@ class FindAndShrinkContainerSharding(ContainerShardingCommandMixin, Lister):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         modified = False
         container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger)
-        root_cid = cid_from_name(self.app.client_manager.account,
-                                 parsed_args.container)
         shard = container_sharding.format_shard(parsed_args.shard)
         shard, neighboring_shard = \
             container_sharding.find_smaller_neighboring_shard(
-                shard, root_cid=root_cid)
+                shard, root_cid=cid)
         shards = list()
         shards.append(shard)
         if neighboring_shard is not None:
             shards.append(neighboring_shard)
-        modified = container_sharding.shrink_shards(shards, root_cid=root_cid)
+        modified = container_sharding.shrink_shards(shards, root_cid=cid)
 
         return ('Modified', ), [(str(modified), )]
 
@@ -487,11 +497,11 @@ class ShowContainerSharding(ContainerShardingCommandMixin, Lister):
         return parser
 
     def _take_action(self, parsed_args):
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger)
-        shards = container_sharding.show_shards(
-            self.app.client_manager.account, parsed_args.container)
+        shards = container_sharding.show_shards(None, None, root_cid=cid)
         for shard in shards:
             shard_info = (shard['index'], shard['lower'], shard['upper'],
                           shard['cid'])
@@ -521,7 +531,7 @@ class IsOrphanShard(ContainerShardingCommandMixin, ShowOne):
     - the container does not appear in the technical sharding account
     """
 
-    columns = ('account', 'container',
+    columns = ('account', 'container', 'cid',
                M2_PROP_SHARDING_STATE[len('sys.m2.'):],
                M2_PROP_SHARDING_TIMESTAMP[len('sys.m2.'):],
                'is_orphan', 'action_taken')
@@ -545,15 +555,17 @@ class IsOrphanShard(ContainerShardingCommandMixin, ShowOne):
         return parser
 
     def take_action(self, parsed_args):
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         obsto = self.app.client_manager.storage
-        cs = ContainerSharding(
+        container_sharding = ContainerSharding(
             self.app.client_manager.sds_conf,
             logger=self.app.client_manager.logger,
             pool_manager=self.app.client_manager.pool_manager)
-        acct, cont = self.account_and_container(parsed_args)
-        cid = cid_from_name(acct, cont)
-        raw_meta = obsto.container_get_properties(acct, cont)
-        root_cid, meta = cs.meta_to_shard(raw_meta)
+        raw_meta = obsto.container_get_properties(
+            None, None, cid=cid, force_master=True)
+        account = raw_meta['system'].get(M2_PROP_ACCOUNT_NAME)
+        container = raw_meta['system'].get(M2_PROP_CONTAINER_NAME)
+        root_cid, meta = container_sharding.meta_to_shard(raw_meta)
         sharding_state = int_value(
             raw_meta['system'].get(M2_PROP_SHARDING_STATE), 0)
         sharding_timestamp = int_value(
@@ -566,20 +578,19 @@ class IsOrphanShard(ContainerShardingCommandMixin, ShowOne):
 
         if root_cid and sharding_state and not recent_change:
             # First page of shards whose "upper" is higher than our "lower"
-            registered = list(cs.show_shards(None, None, root_cid=root_cid,
-                                             marker=meta["lower"],
-                                             no_paging=False))
+            registered = list(container_sharding.show_shards(
+                None, None, root_cid=root_cid,
+                marker=meta["lower"], no_paging=False, force_master=True))
             is_orphan = cid not in [c['cid'] for c in registered]
 
         if is_orphan and parsed_args.autoremove:
             try:
-                obsto.container_delete(acct, cont, force=True)
+                obsto.container_delete(None, None, cid=cid, force=True)
                 action_taken = 'Deleted'
             except Exception as exc:
                 action_taken = f'Tried to delete, but: {exc}'
 
-        return self.columns, [acct,
-                              cont,
+        return self.columns, [account, container, cid,
                               SHARDING_STATE_NAME.get(sharding_state),
                               sharding_timestamp,
                               is_orphan,

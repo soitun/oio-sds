@@ -183,7 +183,7 @@ class ObjectRepair(ObjectCommandMixin, ItemRepairCommand):
         return parser
 
     def _take_action(self, parsed_args):
-        account, _, objects = self.resolve_objects(self.app, parsed_args)
+        account, _, objects = self.resolve_container(self.app, parsed_args)
         objects_to_repair = list()
         for container, obj_name, version in objects:
             obj = dict()

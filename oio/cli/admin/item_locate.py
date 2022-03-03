@@ -267,14 +267,14 @@ class ItemLocateCommand(lister.Lister):
 
     def locate_objects(self, objects):
         reqid = self.app.request_id(self.reqid_prefix)
-        for ct, obj, vers in objects:
+        for acct, ct, obj, vers in objects:
             obj_item = '/'.join(quote(x) for x in (
-                self.app.options.account, ct, obj, str(vers)))
+                acct, ct, obj, str(vers)))
             try:
                 obj_md, chunks = self.storage.object_locate(
-                    self.app.options.account, ct, obj, version=vers,
+                    acct, ct, obj, version=vers,
                     chunk_info=True, reqid=reqid)
-                obj_item = encode_fullpath(self.app.options.account, ct, obj,
+                obj_item = encode_fullpath(acct, ct, obj,
                                            obj_md['version'], obj_md['id'])
             except exceptions.NoSuchContainer as err:
                 self.success = False
@@ -382,12 +382,14 @@ class ObjectLocate(ObjectCommandMixin, ItemLocateCommand):
         return parser
 
     def _take_action(self, parsed_args):
-        account, containers, objects = self.resolve_objects(
-            self.app, parsed_args)
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         return chain(
             self.locate_accounts([account]),
-            self.locate_containers(containers),
-            self.locate_objects(objects))
+            self.locate_containers([container]),
+            self.locate_objects(
+                [(account, container, obj, parsed_args.object_version)
+                 for obj in parsed_args.objects]))
 
     def take_action(self, parsed_args):
         ObjectCommandMixin.check_and_load_parsed_args(

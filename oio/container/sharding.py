@@ -556,12 +556,12 @@ class ContainerSharding(ProxyClient):
         return max_shard_size, found_formatted_shards
 
     @ensure_request_id
-    def find_shards(self, account, container, **kwargs):
+    def find_shards(self, account, container, cid=None, **kwargs):
         fake_shard = {
             'index': -1,
             'lower': '',
             'upper': '',
-            'cid': cid_from_name(account, container),
+            'cid': cid or cid_from_name(account, container),
             'metadata': None
         }
         _, formatted_shards = self._find_formatted_shards(
@@ -570,7 +570,7 @@ class ContainerSharding(ProxyClient):
                                   are_new=True, partial=True, **kwargs)
 
     def _find_all_formatted_shards(self, root_account, root_container,
-                                   strategy=None, **kwargs):
+                                   root_cid=None, strategy=None, **kwargs):
         no_shrinking = True
         if strategy is None:
             strategy = self.DEFAULT_STRATEGY
@@ -578,7 +578,7 @@ class ContainerSharding(ProxyClient):
             no_shrinking = False
 
         current_shards = self.show_shards(root_account, root_container,
-                                          **kwargs)
+                                          root_cid=root_cid, **kwargs)
 
         incomplete_shard = None
         index = 0
@@ -628,7 +628,7 @@ class ContainerSharding(ProxyClient):
             'index': -1,
             'lower': '',
             'upper': '',
-            'cid': cid_from_name(root_account, root_container),
+            'cid': root_cid or cid_from_name(root_account, root_container),
             'metadata': None
         }
         _, found_shards = self._find_formatted_shards(

@@ -130,21 +130,27 @@ class ObjectCommandMixin(CommandMixin):
     def check_and_load_parsed_args(self, app, parsed_args):
         pass
 
-    def resolve_objects(self, app, parsed_args):
-        containers = set()
-        objects = list()
+    def resolve_container(self, app, parsed_args, name=False):
+        """
+        Get CID (or account and container name) from parsed args.
+
+        Resolve a CID into account and container name if required.
+        """
         if parsed_args.is_cid:
-            account, container = \
-                app.client_manager.storage.resolve_cid(
-                    parsed_args.container)
+            account = None
+            container = None
+            cid = parsed_args.container
+            if name:
+                account, container = \
+                    app.client_manager.storage.resolve_cid(cid)
         else:
-            account = app.options.account
+            account = app.client_manager.account
             container = parsed_args.container
-        containers.add(container)
-        for obj in parsed_args.objects:
-            objects.append(
-                (container, obj, parsed_args.object_version))
-        return account, containers, objects
+            cid = cid_from_name(account, container)
+            if not name:
+                account = None
+                container = None
+        return account, container, cid
 
 
 class ChunkCommandMixin(CommandMixin):

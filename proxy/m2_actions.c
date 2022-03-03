@@ -3701,8 +3701,6 @@ static enum http_rc_e action_m2_content_touch (struct req_args_s *args,
 		struct json_object *jargs) {
 	(void) jargs;
 
-	if (!oio_url_has_fq_container(args->url))
-		return _reply_format_error(args, BADREQ("container unspecified"));
 	if (!oio_url_has(args->url, OIOURL_PATH) &&
 			!oio_url_has(args->url, OIOURL_CONTENTID))
 		return _reply_format_error(args, BADREQ("missing content path or ID"));
@@ -4273,10 +4271,6 @@ _m2_content_delete_many (struct req_args_s *args, struct json_object * jbody) {
 	json_object *jarray = NULL;
 	PACKER_VOID(_pack) { return m2v2_remote_pack_DEL (args->url,
 			create_delete_marker, DL()); }
-
-	if (!oio_url_has_fq_container(args->url))
-		return _reply_format_error(args,
-				BADREQ("Missing url argument"));
 
 	if (!json_object_object_get_ex(jbody, "contents", &jarray)
 			|| !json_object_is_type(jarray, json_type_array))

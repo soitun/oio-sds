@@ -16,14 +16,15 @@
 
 """Container-related commands"""
 
-from six import iteritems
 from logging import getLogger
 from time import time as now
 
 from oio.cli import Command, Lister, ShowOne
+from oio.common.easy_value import convert_size
 from oio.common.exceptions import CommandError, NoSuchContainer
 from oio.common.timestamp import Timestamp
-from oio.common.utils import depaginate, request_id, timeout_to_deadline
+from oio.common.utils import cid_from_name, depaginate, request_id, \
+    timeout_to_deadline
 from oio.common.constants import \
     BUCKET_PROP_REPLI_ENABLED, \
     OIO_DB_STATUS_NAME, OIO_DB_ENABLED, OIO_DB_DISABLED, OIO_DB_FROZEN, \
@@ -36,7 +37,7 @@ from oio.common.constants import \
     M2_PROP_STORAGE_POLICY, M2_PROP_USAGE, M2_PROP_VERSIONING_POLICY, \
     SHARDING_STATE_NAME, M2_PROP_DRAINING_STATE, DRAINING_STATE_NEEDED, \
     DRAINING_STATE_NAME, M2_PROP_DRAINING_TIMESTAMP, \
-    M2_PROP_LOCATION
+    M2_PROP_LOCATION, M2_PROP_CONTAINER_NAME, M2_PROP_ACCOUNT_NAME
 from oio.common.easy_value import boolean_value, int_value, float_value
 
 
@@ -101,11 +102,27 @@ class ContainerCommandMixin(object):
             help=("Name or CID of the container to interact with.\n")
         )
 
-    def take_action_container(self, parsed_args):
-        parsed_args.cid = None
+    def resolve_container(self, app, parsed_args, name=False):
+        """
+        Get CID (or account and container name) from parsed args.
+
+        Resolve a CID into account and container name if required.
+        """
         if parsed_args.is_cid:
-            parsed_args.cid = parsed_args.container
-            parsed_args.container = None
+            account = None
+            container = None
+            cid = parsed_args.container
+            if name:
+                account, container = \
+                    app.client_manager.storage.resolve_cid(cid)
+        else:
+            account = app.client_manager.account
+            container = parsed_args.container
+            cid = cid_from_name(account, container)
+            if not name:
+                account = None
+                container = None
+        return account, container, cid
 
 
 class ContainersCommandMixin(object):
@@ -125,6 +142,31 @@ class ContainersCommandMixin(object):
             nargs='+',
             help=("Names or CIDs of the containers to interact with.\n")
         )
+
+    def resolve_containers(self, app, parsed_args, name=False):
+        """
+        Get CIDs (or account and container names) from parsed args.
+
+        Resolve CIDs into account and container names if required.
+        """
+        containers = []
+        if parsed_args.is_cid:
+            for cid in parsed_args.containers:
+                account = None
+                container = None
+                if name:
+                    account, container = \
+                        app.client_manager.storage.resolve_cid(cid)
+                containers.append((account, container, cid))
+        else:
+            account = app.client_manager.account
+            for container in parsed_args.containers:
+                cid = cid_from_name(account, container)
+                if not name:
+                    account = None
+                    container = None
+                containers.append((account, container, cid))
+        return containers
 
 
 class CreateContainer(SetPropertyCommandMixin, Lister):
@@ -228,8 +270,6 @@ class SetBucket(ShowOne):
                                          reqid=reqid)
 
         if parsed_args.formatter == 'table':
-            from oio.common.easy_value import convert_size
-
             data['bytes'] = convert_size(data['bytes'])
             data['mtime'] = Timestamp(data.get('mtime', 0.0)).isoformat
         return zip(*sorted(data.items()))
@@ -269,7 +309,7 @@ class SetContainer(SetPropertyCommandMixin,
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
-        super(SetContainer, self).take_action_container(parsed_args)
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         properties = parsed_args.property
         system = dict()
         if parsed_args.bucket_name:
@@ -292,13 +332,8 @@ class SetContainer(SetPropertyCommandMixin,
             system['sys.status'] = status_value[parsed_args.status]
 
         self.app.client_manager.storage.container_set_properties(
-            self.app.client_manager.account,
-            parsed_args.container,
-            properties,
-            clear=parsed_args.clear,
-            system=system,
-            cid=parsed_args.cid
-        )
+            None, None, properties,
+            clear=parsed_args.clear, system=system, cid=cid)
 
 
 class TouchContainer(ContainersCommandMixin, Command):
@@ -320,18 +355,10 @@ class TouchContainer(ContainersCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        if parsed_args.is_cid:
-            for container in parsed_args.containers:
-                self.app.client_manager.storage.container_touch(
-                    self.app.client_manager.account,
-                    None, recompute=parsed_args.recompute, cid=container
-                )
-        else:
-            for container in parsed_args.containers:
-                self.app.client_manager.storage.container_touch(
-                    self.app.client_manager.account,
-                    container, recompute=parsed_args.recompute
-                )
+
+        for _, _, cid in self.resolve_containers(self.app, parsed_args):
+            self.app.client_manager.storage.container_touch(
+                None, None, cid=cid, recompute=parsed_args.recompute)
 
 
 class DeleteContainer(ContainersCommandMixin, Command):
@@ -354,18 +381,9 @@ class DeleteContainer(ContainersCommandMixin, Command):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
-        if parsed_args.is_cid:
-            for container in parsed_args.containers:
-                self.app.client_manager.storage.container_delete(
-                    self.app.client_manager.account,
-                    None, cid=container, force=parsed_args.force
-                )
-        else:
-            for container in parsed_args.containers:
-                self.app.client_manager.storage.container_delete(
-                    self.app.client_manager.account,
-                    container, force=parsed_args.force
-                )
+        for _, _, cid in self.resolve_containers(self.app, parsed_args):
+            self.app.client_manager.storage.container_delete(
+                None, None, cid=cid, force=parsed_args.force)
 
 
 class FlushContainer(ContainerCommandMixin, Command):
@@ -387,16 +405,10 @@ class FlushContainer(ContainerCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
-        if parsed_args.cid is None:
-            account = self.app.client_manager.account
-            container = parsed_args.container
-        else:
-            account, container = \
-                self.app.client_manager.storage.resolve_cid(
-                    parsed_args.cid)
+
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         self.app.client_manager.storage.container_flush(
-            account, container, fast=parsed_args.quick)
+            None, None, cid=cid, fast=parsed_args.quick)
 
 
 class DrainContainer(ContainersCommandMixin, Command):
@@ -417,16 +429,10 @@ class DrainContainer(ContainersCommandMixin, Command):
 
         system = {M2_PROP_DRAINING_STATE: str(DRAINING_STATE_NEEDED),
                   M2_PROP_DRAINING_TIMESTAMP: str(round(now() * 1000000))}
-        for container in parsed_args.containers:
-            account = self.app.client_manager.account
-            cid = None
-            if parsed_args.is_cid:
-                cid = container
-
+        for _, _, cid in self.resolve_containers(self.app, parsed_args):
             self.app.client_manager.storage.container_set_properties(
-                account, container, cid=cid, system=system,
-                propagate_to_shards=True
-            )
+                None, None, cid=cid, system=system,
+                propagate_to_shards=True)
 
 
 class ShowBucket(ShowOne):
@@ -454,8 +460,6 @@ class ShowBucket(ShowOne):
         data = acct_client.bucket_show(parsed_args.bucket, account=account,
                                        reqid=reqid)
         if parsed_args.formatter == 'table':
-            from oio.common.easy_value import convert_size
-
             data['bytes'] = convert_size(data['bytes'])
             data['mtime'] = Timestamp(data.get('mtime', 0.0)).isoformat
         return zip(*sorted(data.items()))
@@ -472,20 +476,14 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
         return parser
 
     def take_action(self, parsed_args):
-        from oio.common.easy_value import convert_size
         self.log.debug('take_action(%s)', parsed_args)
 
-        account = self.app.client_manager.account
-        self.take_action_container(parsed_args)
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         # The command is named 'show' but we must call
         # container_get_properties() because container_show() does
         # not return system properties (and we need them).
         data = self.app.client_manager.storage.container_get_properties(
-            account,
-            parsed_args.container,
-            cid=parsed_args.cid,
-            admin_mode=True
-        )
+            _, _, cid=cid, admin_mode=True)
         sys = data['system']
         ctime = float(sys[M2_PROP_CTIME]) / 1000000.
         bytes_usage = sys.get(M2_PROP_USAGE, 0)
@@ -498,9 +496,9 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
             objects = convert_size(int(objects))
             shards = convert_size(int(shards))
         info = {
-            'account': sys['sys.account'],
+            'account': sys[M2_PROP_ACCOUNT_NAME],
             'base_name': sys['sys.name'],
-            'container': sys['sys.user.name'],
+            'container': sys[M2_PROP_CONTAINER_NAME],
             'ctime': ctime,
             'bytes_usage': bytes_usage,
             'location': location,
@@ -533,7 +531,7 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
             info['sharding.state'] = sharding_state
             sharding_timestamp = sys.get(M2_PROP_SHARDING_TIMESTAMP)
             if sharding_timestamp is None:
-                self.log.warn('Missing sharding timestamp')
+                self.log.warning('Missing sharding timestamp')
             elif parsed_args.formatter == 'table':
                 sharding_timestamp = int(sharding_timestamp)
             info['sharding.timestamp'] = sharding_timestamp
@@ -542,33 +540,35 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
             info['sharding.root'] = sys.get(M2_PROP_SHARDING_ROOT)
             sharding_lower = sys.get(M2_PROP_SHARDING_LOWER)
             if not sharding_lower:
-                self.log.warn('Missing sharding lower')
+                self.log.warning('Missing sharding lower')
             if sharding_lower[0] == '>':
                 sharding_lower = sharding_lower[1:]
             else:
-                self.log.warn('Wrong format for sharding lower')
+                self.log.warning('Wrong format for sharding lower')
             info['sharding.lower'] = sharding_lower
             sharding_upper = sys.get(M2_PROP_SHARDING_UPPER)
             if not sharding_upper:
-                self.log.warn('Missing sharding upper')
+                self.log.warning('Missing sharding upper')
             if sharding_upper[0] == '<':
                 sharding_upper = sharding_upper[1:]
             else:
-                self.log.warn('Wrong format for sharding upper')
+                self.log.warning('Wrong format for sharding upper')
             info['sharding.upper'] = sharding_upper
             sharding_previous_lower = sys.get(M2_PROP_SHARDING_PREVIOUS_LOWER)
             if sharding_previous_lower:
                 if sharding_previous_lower[0] == '>':
                     sharding_previous_lower = sharding_previous_lower[1:]
                 else:
-                    self.log.warn('Wrong format for previous sharding lower')
+                    self.log.warning(
+                        'Wrong format for previous sharding lower')
                 info['sharding.lower.previous'] = sharding_previous_lower
             sharding_previous_upper = sys.get(M2_PROP_SHARDING_PREVIOUS_UPPER)
             if sharding_previous_upper:
                 if sharding_previous_upper[0] == '<':
                     sharding_previous_upper = sharding_previous_upper[1:]
                 else:
-                    self.log.warn('Wrong format for previous sharding upper')
+                    self.log.warning(
+                        'Wrong format for previous sharding upper')
                 info['sharding.upper.previous'] = sharding_previous_upper
             if M2_PROP_SHARDING_MASTER in sys:
                 info['sharding.master'] = sys[M2_PROP_SHARDING_MASTER]
@@ -604,7 +604,7 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
         delete_exceeding = sys.get(M2_PROP_DEL_EXC_VERSIONS, None)
         if delete_exceeding is not None:
             info['delete_exceeding_versions'] = delete_exceeding != '0'
-        for k, v in iteritems(data['properties']):
+        for k, v in data['properties'].items():
             info['meta.' + k] = v
         return list(zip(*sorted(info.items())))
 
@@ -842,7 +842,7 @@ class UnsetContainer(ContainerCommandMixin, Command):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
-        self.take_action_container(parsed_args)
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         properties = parsed_args.property
         system = dict()
         if parsed_args.bucket_name:
@@ -858,14 +858,10 @@ class UnsetContainer(ContainerCommandMixin, Command):
 
         if properties or not system:
             self.app.client_manager.storage.container_del_properties(
-                self.app.client_manager.account,
-                parsed_args.container,
-                properties, cid=parsed_args.cid)
+                None, None, properties, cid=cid)
         if system:
             self.app.client_manager.storage.container_set_properties(
-                self.app.client_manager.account,
-                parsed_args.container,
-                system=system, cid=parsed_args.cid)
+                None, None, cid=cid, system=system)
 
 
 class SaveContainer(ContainerCommandMixin, Command):
@@ -882,18 +878,14 @@ class SaveContainer(ContainerCommandMixin, Command):
         import os
 
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
 
-        account = self.app.client_manager.account
-        container = parsed_args.container
-        cid = parsed_args.cid
-        objs = self.app.client_manager.storage.object_list(
-            account, container, cid=cid)
+        _, _, cid = self.resolve_container(self.app, parsed_args)
+        objs = self.app.client_manager.storage.object_list(None, None, cid=cid)
 
         for obj in objs['objects']:
             obj_name = obj['name']
             _, stream = self.app.client_manager.storage.object_fetch(
-                account, container, obj_name, properties=False, cid=cid)
+                None, None, obj_name, properties=False, cid=cid)
 
             if not os.path.exists(os.path.dirname(obj_name)):
                 if len(os.path.dirname(obj_name)) > 0:
@@ -915,21 +907,18 @@ class LocateContainer(ContainerCommandMixin, ShowOne):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
 
-        account = self.app.client_manager.account
-        container = parsed_args.container
-        cid = parsed_args.cid
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         m2_sys = self.app.client_manager.storage.container_get_properties(
-            account, container, cid=cid)['system']
+            None, None, cid=cid)['system']
 
         data_dir = self.app.client_manager.storage.directory.list(
-            account, container, cid=cid)
+            None, None, cid=cid)
 
         info = {
-            'account': m2_sys['sys.account'],
+            'account': m2_sys[M2_PROP_ACCOUNT_NAME],
             'base_name': m2_sys['sys.name'],
-            'name': m2_sys['sys.user.name'],
+            'name': m2_sys[M2_PROP_CONTAINER_NAME],
             'meta0': list(),
             'meta1': list(),
             'meta2': list(),
@@ -979,14 +968,10 @@ class PurgeContainer(ContainerCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
 
-        account = self.app.client_manager.account
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         self.app.client_manager.storage.container_purge(
-            account, parsed_args.container,
-            maxvers=parsed_args.max_versions,
-            cid=parsed_args.cid
-        )
+            None, None, cid=cid, maxvers=parsed_args.max_versions)
 
 
 class RefreshBucket(Command):
@@ -1032,16 +1017,10 @@ class RefreshContainer(ContainerCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
-        if parsed_args.cid is None:
-            account = self.app.client_manager.account
-            container = parsed_args.container
-        else:
-            account, container = \
-                self.app.client_manager.storage.resolve_cid(
-                    parsed_args.cid)
-        self.app.client_manager.storage.container_refresh(
-            account=account, container=container)
+
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
+        self.app.client_manager.storage.container_refresh(account, container)
 
 
 class SnapshotContainer(ContainerCommandMixin, Lister):
@@ -1091,14 +1070,9 @@ class SnapshotContainer(ContainerCommandMixin, Lister):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        self.take_action_container(parsed_args)
-        cid = parsed_args.cid
-        if cid is None:
-            account = self.app.client_manager.account
-            container = parsed_args.container
-        else:
-            account, container = \
-                self.app.client_manager.storage.resolve_cid(cid)
+
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         deadline = timeout_to_deadline(parsed_args.timeout)
         dst_account = parsed_args.dst_account or account
         dst_container = (parsed_args.dst_container or

@@ -20,7 +20,7 @@ from logging import getLogger
 
 from oio.common.json import json
 from oio.cli import Command, Lister, ShowOne
-from oio.common.utils import depaginate
+from oio.common.utils import cid_from_name, depaginate
 from oio.common.json import json as jsonlib
 
 
@@ -41,11 +41,27 @@ class ContainerCommandMixin(object):
             action='store_true'
         )
 
-    def take_action(self, parsed_args):
-        parsed_args.cid = None
+    def resolve_container(self, app, parsed_args, name=False):
+        """
+        Get CID (or account and container name) from parsed args.
+
+        Resolve a CID into account and container name if required.
+        """
         if parsed_args.is_cid:
-            parsed_args.cid = parsed_args.container
-            parsed_args.container = None
+            account = None
+            container = None
+            cid = parsed_args.container
+            if name:
+                account, container = \
+                    app.client_manager.storage.resolve_cid(cid)
+        else:
+            account = app.client_manager.account
+            container = parsed_args.container
+            cid = cid_from_name(account, container)
+            if not name:
+                account = None
+                container = None
+        return account, container, cid
 
 
 class ObjectCommandMixin(ContainerCommandMixin):
@@ -63,6 +79,30 @@ class ObjectCommandMixin(ContainerCommandMixin):
             default=None,
             metavar='version',
             help='Version of the object to manipulate.')
+
+
+class ObjectsCommandMixin(ContainerCommandMixin):
+    """Command taking an object name as parameter"""
+
+    def patch_parser(self, parser):
+        super(ObjectsCommandMixin, self).patch_parser(parser)
+        parser.add_argument(
+            'objects',
+            nargs='+',
+            metavar='<object>',
+            help='Name of the objects to manipulate.')
+        parser.add_argument(
+            '--object-version',
+            type=int,
+            default=None,
+            metavar='version',
+            help='Version of the objects to manipulate.')
+
+    def resolve_container(self, app, parsed_args, name=False):
+        if len(parsed_args.objects) > 1 and parsed_args.object_version:
+            raise Exception("Cannot specify a version for several objects")
+        return super(ObjectsCommandMixin, self).resolve_container(
+            app, parsed_args, name=name)
 
 
 class CreateObject(ContainerCommandMixin, Lister):
@@ -141,19 +181,14 @@ class CreateObject(ContainerCommandMixin, Lister):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(CreateObject, self).take_action(parsed_args)
 
-        container = parsed_args.container
-        cid = parsed_args.cid
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         policy = parsed_args.policy
         objs = parsed_args.objects
         names = parsed_args.name
         key_file = parsed_args.key_file
         autocreate = parsed_args.autocreate
-        if cid is not None:
-            data = self.app.client_manager.storage.container_get_properties(
-                self.app.client_manager.account, None, cid=cid)
-            container = data['system']['sys.user.name']
         if key_file and key_file[0] != '/':
             key_file = os.getcwd() + '/' + key_file
 
@@ -168,8 +203,7 @@ class CreateObject(ContainerCommandMixin, Lister):
                 with io.open(obj, 'rb') as f:
                     name = names.pop(0) if names else os.path.basename(f.name)
                     data = self.app.client_manager.storage.object_create(
-                        self.app.client_manager.account,
-                        container,
+                        account, container,
                         file_or_path=f,
                         obj_name=name,
                         policy=policy,
@@ -206,7 +240,7 @@ class CreateObject(ContainerCommandMixin, Lister):
         return columns, listing
 
 
-class TouchObject(ContainerCommandMixin, Command):
+class TouchObject(ObjectsCommandMixin, Command):
     """Touch an object in a container, re-triggers asynchronous treatments"""
 
     log = getLogger(__name__ + '.TouchObject')
@@ -214,42 +248,20 @@ class TouchObject(ContainerCommandMixin, Command):
     def get_parser(self, prog_name):
         parser = super(TouchObject, self).get_parser(prog_name)
         self.patch_parser(parser)
-        parser.add_argument(
-            'objects',
-            metavar='<object>',
-            nargs='+',
-            help='Object(s) to touch'
-        )
-        parser.add_argument(
-            '--object-version',
-            type=int,
-            default=None,
-            metavar='version',
-            help='Version of the object to manipulate.')
         return parser
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(TouchObject, self).take_action(parsed_args)
 
-        container = parsed_args.container
-        cid = parsed_args.cid
-        if len(parsed_args.objects) > 1 and parsed_args.object_version:
-            raise Exception("Cannot specify a version for several objects")
-        if cid is not None:
-            data = self.app.client_manager.storage.container_get_properties(
-                self.app.client_manager.account, None, cid=cid)
-            container = data['system']['sys.user.name']
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         for obj in parsed_args.objects:
             self.app.client_manager.storage.object_touch(
-                self.app.client_manager.account,
-                container,
-                obj,
+                None, None, obj,
                 version=parsed_args.object_version,
                 cid=cid)
 
 
-class DeleteObject(ContainerCommandMixin, Lister):
+class DeleteObject(ObjectsCommandMixin, Lister):
     """Delete object from container"""
 
     log = getLogger(__name__ + '.DeleteObject')
@@ -257,51 +269,23 @@ class DeleteObject(ContainerCommandMixin, Lister):
     def get_parser(self, prog_name):
         parser = super(DeleteObject, self).get_parser(prog_name)
         self.patch_parser(parser)
-        parser.add_argument(
-            'objects',
-            metavar='<object>',
-            nargs='+',
-            help='Object(s) to delete'
-        )
-        parser.add_argument(
-            '--object-version',
-            type=int,
-            default=None,
-            metavar='version',
-            help='Version of the object to manipulate.')
         return parser
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(DeleteObject, self).take_action(parsed_args)
-        container = ''
+
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         results = []
-        account = self.app.client_manager.account
 
         if len(parsed_args.objects) <= 1:
-            container = parsed_args.container
             deleted = self.app.client_manager.storage.object_delete(
-                account,
-                container,
-                parsed_args.objects[0],
+                None, None, parsed_args.objects[0],
                 version=parsed_args.object_version,
-                cid=parsed_args.cid)
+                cid=cid)
             results.append((parsed_args.objects[0], deleted))
         else:
-            if parsed_args.object_version:
-                raise Exception("Cannot specify a version for several objects")
-            container = parsed_args.container
-            cid = parsed_args.cid
-            if cid is not None:
-                data = (
-                    self.app.client_manager.storage.
-                    container_get_properties(
-                        self.app.client_manager.account, None, cid=cid))
-                container = data['system']['sys.user.name']
             results = self.app.client_manager.storage.object_delete_many(
-                account,
-                container,
-                parsed_args.objects)
+                None, None, parsed_args.objects, cid=cid)
 
         columns = ('Name', 'Deleted')
         res_gen = (r for r in results)
@@ -320,19 +304,14 @@ class ShowObject(ObjectCommandMixin, ShowOne):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(ShowObject, self).take_action(parsed_args)
 
-        account = self.app.client_manager.account
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         obj = parsed_args.object
 
-        container = parsed_args.container
-        cid = parsed_args.cid
         data = self.app.client_manager.storage.object_show(
-            account,
-            container,
-            obj,
-            version=parsed_args.object_version,
-            cid=cid)
+            account, container, obj,
+            version=parsed_args.object_version)
         info = {'account': account,
                 'container': container,
                 'object': obj}
@@ -377,9 +356,8 @@ class SetObject(ObjectCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(SetObject, self).take_action(parsed_args)
-        container = parsed_args.container
-        cid = parsed_args.cid
+
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         obj = parsed_args.object
         properties = parsed_args.property
         if parsed_args.tagging:
@@ -399,10 +377,7 @@ class SetObject(ObjectCommandMixin, Command):
             from oio.container.lifecycle import TAGGING_KEY
             properties[TAGGING_KEY] = tags_xml
         self.app.client_manager.storage.object_set_properties(
-            self.app.client_manager.account,
-            container,
-            obj,
-            properties,
+            None, None, obj, properties,
             version=parsed_args.object_version,
             clear=parsed_args.clear,
             cid=cid)
@@ -436,10 +411,8 @@ class SaveObject(ObjectCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(SaveObject, self).take_action(parsed_args)
 
-        container = parsed_args.container
-        cid = parsed_args.cid
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         obj = parsed_args.object
         key_file = parsed_args.key_file
         if key_file and key_file[0] != '/':
@@ -449,9 +422,7 @@ class SaveObject(ObjectCommandMixin, Command):
             filename = obj
 
         _meta, stream = self.app.client_manager.storage.object_fetch(
-            self.app.client_manager.account,
-            container,
-            obj,
+            None, None, obj,
             version=parsed_args.object_version,
             key_file=key_file,
             properties=False,
@@ -543,7 +514,6 @@ class ListObject(ContainerCommandMixin, Lister):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(ListObject, self).take_action(parsed_args)
 
         kwargs = {}
         if parsed_args.prefix:
@@ -565,20 +535,17 @@ class ListObject(ContainerCommandMixin, Lister):
         if parsed_args.attempts:
             kwargs['request_attempts'] = parsed_args.attempts
 
-        account = self.app.client_manager.account
-        container = parsed_args.container
-        cid = parsed_args.cid
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         if parsed_args.full_listing:
             obj_gen = depaginate(
                 self.app.client_manager.storage.object_list,
                 listing_key=lambda x: x['objects'],
                 marker_key=lambda x: x.get('next_marker'),
                 truncated_key=lambda x: x['truncated'],
-                account=account, container=container,
-                cid=cid, **kwargs)
+                account=None, container=None, cid=cid, **kwargs)
         else:
             resp = self.app.client_manager.storage.object_list(
-                account, container, cid=cid, **kwargs)
+                None, None, cid=cid, **kwargs)
             obj_gen = resp['objects']
             if resp.get('truncated'):
                 self.log.info(
@@ -656,18 +623,15 @@ class UnsetObject(ObjectCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(UnsetObject, self).take_action(parsed_args)
-        container = parsed_args.container
-        cid = parsed_args.cid
+
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         obj = parsed_args.object
         properties = parsed_args.property or list()
         if parsed_args.tagging:
             from oio.container.lifecycle import TAGGING_KEY
             properties.append(TAGGING_KEY)
         self.app.client_manager.storage.object_del_properties(
-            self.app.client_manager.account,
-            container,
-            obj,
+            None, None, obj,
             properties,
             version=parsed_args.object_version,
             cid=cid)
@@ -695,16 +659,11 @@ but no action needing the removed chunks are accepted\
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(DrainObject, self).take_action(parsed_args)
-        account = self.app.client_manager.account
-        container = parsed_args.container
-        cid = parsed_args.cid
+
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         for obj in parsed_args.objects:
             self.app.client_manager.storage.object_drain(
-                account,
-                container,
-                obj,
-                cid=cid)
+                None, None, obj, cid=cid)
 
 
 class LocateObject(ObjectCommandMixin, Lister):
@@ -726,15 +685,12 @@ class LocateObject(ObjectCommandMixin, Lister):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(LocateObject, self).take_action(parsed_args)
 
-        account = self.app.client_manager.account
-        container = parsed_args.container
-        cid = parsed_args.cid
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         obj = parsed_args.object
 
         data = self.app.client_manager.storage.object_locate(
-            account, container, obj, cid=cid,
+            None, None, obj, cid=cid,
             version=parsed_args.object_version,
             chunk_info=parsed_args.chunk_info)
 
@@ -775,13 +731,10 @@ class PurgeObject(ObjectCommandMixin, Command):
 
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
-        super(PurgeObject, self).take_action(parsed_args)
 
-        container = parsed_args.container
-        cid = parsed_args.cid
-        account = self.app.client_manager.account
+        _, _, cid = self.resolve_container(self.app, parsed_args)
         self.app.client_manager.storage.container.content_purge(
-            account, container, parsed_args.object,
+            None, None, parsed_args.object,
             maxvers=parsed_args.max_versions, cid=cid
         )
 
@@ -830,11 +783,11 @@ class LinkObject(ObjectCommandMixin, Command):
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
 
-        account = self.app.client_manager.account
         directive = 'COPY'
         kwargs = {}
 
-        container = parsed_args.container
+        account, container, _ = self.resolve_container(
+            self.app, parsed_args, name=True)
         if parsed_args.property:
             directive = 'REPLACE'
             kwargs['properties'] = parsed_args.property
@@ -842,11 +795,6 @@ class LinkObject(ObjectCommandMixin, Command):
             parsed_args.dest_account = account
         if not parsed_args.dest_container:
             parsed_args.dest_container = container
-            parsed_args.cid = None
-        cid = None
-        if parsed_args.is_cid:
-            cid = container
-            container = None
 
         self.app.client_manager.storage.object_link(
             account, container, parsed_args.object,
@@ -854,5 +802,4 @@ class LinkObject(ObjectCommandMixin, Command):
             parsed_args.dest_object, target_version=parsed_args.object_version,
             target_content_id=parsed_args.content_id,
             link_content_id=parsed_args.dest_content_id,
-            properties_directive=directive, cid=cid, **kwargs
-        )
+            properties_directive=directive, **kwargs)
