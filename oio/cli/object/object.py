@@ -14,49 +14,24 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library.
 
-from oio.common.green import GreenPool
-
 from six import iteritems
 import os
 from logging import getLogger
 
 from oio.common.json import json
 from oio.cli import Command, Lister, ShowOne
-from oio.common.http_urllib3 import get_pool_manager
 from oio.common.utils import depaginate
 from oio.common.json import json as jsonlib
-from oio.common import exceptions
-
-
-# flatns_manager field is not seen as callable.
-# pylint: disable=not-callable
 
 
 class ContainerCommandMixin(object):
     """Command taking a container name as parameter"""
 
-    @property
-    def flatns_manager(self):
-        return self.app.client_manager.flatns_manager
-
     def patch_parser(self, parser):
         parser.add_argument(
             'container',
             metavar='<container>',
-            nargs='?',
-            help="Name or cid of the container to interact with.\n"
-                 "Optional if --auto is specified."
-        )
-        parser.add_argument(
-            '--auto',
-            help="Auto-generate the container name according to the "
-                 "'flat_*' namespace parameters (<container> is ignored).",
-            action="store_true",
-        )
-        parser.add_argument(
-            '--flat-bits',
-            type=int,
-            help="Number of bits for flat-NS computation",
+            help="Name or cid of the container to interact with."
         )
         parser.add_argument(
             '--cid',
@@ -67,17 +42,10 @@ class ContainerCommandMixin(object):
         )
 
     def take_action(self, parsed_args):
-        if not parsed_args.container and not parsed_args.auto:
-            from argparse import ArgumentError
-            raise ArgumentError(parsed_args.container,
-                                "Missing value for container or --auto")
         parsed_args.cid = None
         if parsed_args.is_cid:
             parsed_args.cid = parsed_args.container
             parsed_args.container = None
-
-        if parsed_args.flat_bits:
-            self.app.client_manager.flatns_set_bits(parsed_args.flat_bits)
 
 
 class ObjectCommandMixin(ContainerCommandMixin):
@@ -199,8 +167,6 @@ class CreateObject(ContainerCommandMixin, Lister):
             try:
                 with io.open(obj, 'rb') as f:
                     name = names.pop(0) if names else os.path.basename(f.name)
-                    if parsed_args.auto:
-                        container = self.flatns_manager(name)
                     data = self.app.client_manager.storage.object_create(
                         self.app.client_manager.account,
                         container,
@@ -275,8 +241,6 @@ class TouchObject(ContainerCommandMixin, Command):
                 self.app.client_manager.account, None, cid=cid)
             container = data['system']['sys.user.name']
         for obj in parsed_args.objects:
-            if parsed_args.auto:
-                container = self.flatns_manager(obj)
             self.app.client_manager.storage.object_touch(
                 self.app.client_manager.account,
                 container,
@@ -315,11 +279,7 @@ class DeleteObject(ContainerCommandMixin, Lister):
         account = self.app.client_manager.account
 
         if len(parsed_args.objects) <= 1:
-            if parsed_args.auto:
-                container = self.flatns_manager(parsed_args.objects[0])
-            else:
-                container = parsed_args.container
-
+            container = parsed_args.container
             deleted = self.app.client_manager.storage.object_delete(
                 account,
                 container,
@@ -330,33 +290,18 @@ class DeleteObject(ContainerCommandMixin, Lister):
         else:
             if parsed_args.object_version:
                 raise Exception("Cannot specify a version for several objects")
-            if parsed_args.auto:
-                objs = {}
-                for obj in parsed_args.objects:
-                    container = self.flatns_manager(obj)
-                    if container not in objs:
-                        objs[container] = []
-                    objs[container].append(obj)
-
-                for key, value in objs:
-                    tmp = self.app.client_manager.storage.object_delete_many(
-                        account,
-                        key,
-                        value)
-                    results += tmp
-            else:
-                container = parsed_args.container
-                cid = parsed_args.cid
-                if cid is not None:
-                    data = (
-                        self.app.client_manager.storage.
-                        container_get_properties(
-                            self.app.client_manager.account, None, cid=cid))
-                    container = data['system']['sys.user.name']
-                results = self.app.client_manager.storage.object_delete_many(
-                    account,
-                    container,
-                    parsed_args.objects)
+            container = parsed_args.container
+            cid = parsed_args.cid
+            if cid is not None:
+                data = (
+                    self.app.client_manager.storage.
+                    container_get_properties(
+                        self.app.client_manager.account, None, cid=cid))
+                container = data['system']['sys.user.name']
+            results = self.app.client_manager.storage.object_delete_many(
+                account,
+                container,
+                parsed_args.objects)
 
         columns = ('Name', 'Deleted')
         res_gen = (r for r in results)
@@ -382,8 +327,6 @@ class ShowObject(ObjectCommandMixin, ShowOne):
 
         container = parsed_args.container
         cid = parsed_args.cid
-        if parsed_args.auto:
-            container = self.flatns_manager(obj)
         data = self.app.client_manager.storage.object_show(
             account,
             container,
@@ -438,8 +381,6 @@ class SetObject(ObjectCommandMixin, Command):
         container = parsed_args.container
         cid = parsed_args.cid
         obj = parsed_args.object
-        if parsed_args.auto:
-            container = self.flatns_manager(obj)
         properties = parsed_args.property
         if parsed_args.tagging:
             try:
@@ -506,8 +447,6 @@ class SaveObject(ObjectCommandMixin, Command):
         filename = parsed_args.file
         if not filename:
             filename = obj
-        if parsed_args.auto:
-            container = self.flatns_manager(obj)
 
         _meta, stream = self.app.client_manager.storage.object_fetch(
             self.app.client_manager.account,
@@ -558,15 +497,6 @@ class ListObject(ContainerCommandMixin, Lister):
             help='End marker for paging'
         )
         parser.add_argument(
-            '--concurrency',
-            metavar='<concurrency>',
-            type=int,
-            default=100,
-            help='The number of concurrent requests to the container. '
-                 '(Only used when the --auto argument is specified. '
-                 'Default: 100)'
-        )
-        parser.add_argument(
             '--attempts',
             dest='attempts',
             type=int,
@@ -611,63 +541,6 @@ class ListObject(ContainerCommandMixin, Lister):
         )
         return parser
 
-    def _autocontainer_loop(self, account, marker=None, limit=None,
-                            concurrency=1, **kwargs):
-        from functools import partial
-        container_marker = self.flatns_manager(marker) if marker else None
-        count = 0
-        kwargs['pool_manager'] = get_pool_manager(
-            pool_maxsize=concurrency * 2)
-        # Start to list contents at 'marker' inside the last visited container
-        if container_marker:
-            for element in depaginate(
-                    self.app.client_manager.storage.object_list,
-                    listing_key=lambda x: x['objects'],
-                    marker_key=lambda x: x.get('next_marker'),
-                    truncated_key=lambda x: x['truncated'],
-                    account=account, container=container_marker,
-                    marker=marker, **kwargs):
-                count += 1
-                yield element
-                if limit and count >= limit:
-                    return
-
-        pool = GreenPool(concurrency)
-        for object_list in pool.imap(
-                partial(self._list_autocontainer_objects,
-                        account=account, **kwargs),
-                depaginate(self.app.client_manager.storage.container_list,
-                           item_key=lambda x: x[0],
-                           marker_key=lambda x: x[-1][0],
-                           account=account,
-                           marker=container_marker)):
-            for element in object_list:
-                count += 1
-                yield element
-                if limit and count >= limit:
-                    return
-
-    def _list_autocontainer_objects(self, container, account, **kwargs):
-        object_list = []
-        if not self.flatns_manager.verify(container):
-            self.log.debug("Container %s is not an autocontainer",
-                           container)
-            return object_list
-        self.log.debug("Listing autocontainer %s", container)
-        try:
-            for i in depaginate(
-                    self.app.client_manager.storage.object_list,
-                    listing_key=lambda x: x['objects'],
-                    marker_key=lambda x: x.get('next_marker'),
-                    truncated_key=lambda x: x['truncated'],
-                    account=account, container=container, **kwargs):
-                object_list.append(i)
-        except exceptions.OioException as err:
-            self.success = False
-            self.log.warn('Listing may be incomplete: container %s: %s',
-                          container, err)
-        return object_list
-
     def take_action(self, parsed_args):
         self.log.debug('take_action(%s)', parsed_args)
         super(ListObject, self).take_action(parsed_args)
@@ -689,33 +562,28 @@ class ListObject(ContainerCommandMixin, Lister):
             kwargs['versions'] = True
         if parsed_args.local:
             kwargs['local'] = True
-        if parsed_args.concurrency:
-            kwargs['concurrency'] = parsed_args.concurrency
         if parsed_args.attempts:
             kwargs['request_attempts'] = parsed_args.attempts
 
         account = self.app.client_manager.account
-        if parsed_args.auto:
-            obj_gen = self._autocontainer_loop(account, **kwargs)
+        container = parsed_args.container
+        cid = parsed_args.cid
+        if parsed_args.full_listing:
+            obj_gen = depaginate(
+                self.app.client_manager.storage.object_list,
+                listing_key=lambda x: x['objects'],
+                marker_key=lambda x: x.get('next_marker'),
+                truncated_key=lambda x: x['truncated'],
+                account=account, container=container,
+                cid=cid, **kwargs)
         else:
-            container = parsed_args.container
-            cid = parsed_args.cid
-            if parsed_args.full_listing:
-                obj_gen = depaginate(
-                    self.app.client_manager.storage.object_list,
-                    listing_key=lambda x: x['objects'],
-                    marker_key=lambda x: x.get('next_marker'),
-                    truncated_key=lambda x: x['truncated'],
-                    account=account, container=container,
-                    cid=cid, **kwargs)
-            else:
-                resp = self.app.client_manager.storage.object_list(
-                    account, container, cid=cid, **kwargs)
-                obj_gen = resp['objects']
-                if resp.get('truncated'):
-                    self.log.info(
-                        'Object listing has been truncated, next marker: %s',
-                        resp.get('next_marker'))
+            resp = self.app.client_manager.storage.object_list(
+                account, container, cid=cid, **kwargs)
+            obj_gen = resp['objects']
+            if resp.get('truncated'):
+                self.log.info(
+                    'Object listing has been truncated, next marker: %s',
+                    resp.get('next_marker'))
 
         if parsed_args.long_listing:
             from oio.common.timestamp import Timestamp
@@ -793,8 +661,6 @@ class UnsetObject(ObjectCommandMixin, Command):
         cid = parsed_args.cid
         obj = parsed_args.object
         properties = parsed_args.property or list()
-        if parsed_args.auto:
-            container = self.flatns_manager(obj)
         if parsed_args.tagging:
             from oio.container.lifecycle import TAGGING_KEY
             properties.append(TAGGING_KEY)
@@ -865,10 +731,7 @@ class LocateObject(ObjectCommandMixin, Lister):
         account = self.app.client_manager.account
         container = parsed_args.container
         cid = parsed_args.cid
-
         obj = parsed_args.object
-        if parsed_args.auto:
-            container = self.flatns_manager(obj)
 
         data = self.app.client_manager.storage.object_locate(
             account, container, obj, cid=cid,
@@ -944,8 +807,7 @@ class LinkObject(ObjectCommandMixin, Command):
             metavar='<destination container>',
             help=('Name of the destination container. If not specified, the '
                   'name of the destination container is the same as the source'
-                  ' container, unless --auto is also specified in which case '
-                  'the name will be computed from the destination object.'))
+                  ' container.'))
         parser.add_argument(
             'dest_object',
             metavar='<destination object>',
@@ -972,21 +834,14 @@ class LinkObject(ObjectCommandMixin, Command):
         directive = 'COPY'
         kwargs = {}
 
-        if parsed_args.auto:
-            container = self.flatns_manager(parsed_args.object)
-        else:
-            container = parsed_args.container
+        container = parsed_args.container
         if parsed_args.property:
             directive = 'REPLACE'
             kwargs['properties'] = parsed_args.property
         if not parsed_args.dest_account:
             parsed_args.dest_account = account
         if not parsed_args.dest_container:
-            if parsed_args.auto:
-                parsed_args.dest_container = \
-                    self.flatns_manager(parsed_args.dest_object)
-            else:
-                parsed_args.dest_container = container
+            parsed_args.dest_container = container
             parsed_args.cid = None
         cid = None
         if parsed_args.is_cid:

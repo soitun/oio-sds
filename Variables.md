@@ -1,6 +1,6 @@
 # OpenIO SDS configuration
 
-`oio-sds` allows you to alter a lot of configuration at compile-time as well at runtime. We use a minimal generation tool for a set of variables that can be modified at runtime, and whose default value can be changed at the compile-time. Those variabes are described [here](./Variables.md)
+`oio-sds` allows you to alter a lot of configuration at compile-time as well at runtime. We use a minimal generation tool for a set of variables that can be modified at runtime, and whose default value can be changed at the compile-time. Those variables are described [here](./Variables.md)
 
 Some variables, though, are not configurable yet, and still require a value to be fixed once for all when compiling the code. Please find below the list of the `cmake` directives to control such variables.
 
@@ -34,7 +34,7 @@ Used by `gcc`
 | ----- | ------- | ----------- |
 | PROXYD_PREFIX | "v3.0" | Prefix applied to proxyd's URL, second version (with accounts) |
 | PROXYD_HEADER_PREFIX | "X-oio-" | Prefix for all the headers sent to the proxy |
-| PROXYD_HEADER_REQID | PROXYD_HEADER_PREFIX "req-id" | Header whose value is printed in access log, destined to agregate several requests belonging to the same session. |
+| PROXYD_HEADER_REQID | PROXYD_HEADER_PREFIX "req-id" | Header whose value is printed in access log, destined to aggregate several requests belonging to the same session. |
 | PROXYD_HEADER_NOEMPTY | PROXYD_HEADER_PREFIX "no-empty-list" | Flag sent to the proxy to turn empty list (results) into 404 not found. |
 
 | Macro | Default | Description |
@@ -88,7 +88,7 @@ Used by `gcc`
 | fsync | boolean | disabled | At the end of an upload, perform a fsync() on the chunk file itself |
 | fsync_dir | boolean | enabled | At the end of an upload, perform a fsync() on the directory holding the chunk |
 | fallocate | boolean | enabled | Preallocate space for the chunk file |
-| checksum | string (enabled,disabled,smart) | enabled | Enable checksuming the body of PUT |
+| checksum | string (enabled,disabled,smart) | enabled | Enable checksumming the body of PUT |
 
 
 ## Fully configurable variables (compilation & runtime)
@@ -426,7 +426,7 @@ Used by `gcc`
 
 ### meta.queue.max_delay
 
-> Anti-DDoS counter-mesure. In the current server, sets the maximum amount of time a queued TCP event may remain in the queue. If an event is polled and the thread sees the event stayed longer than that delay, A '503 Unavailabe' error is replied.
+> Anti-DDoS counter-measure. In the current server, sets the maximum amount of time a queued TCP event may remain in the queue. If an event is polled and the thread sees the event stayed longer than that delay, A '503 Unavailable' error is replied.
 
  * default: **40 * G_TIME_SPAN_SECOND**
  * type: gint64
@@ -687,15 +687,6 @@ Used by `gcc`
  * cmake directive: *OIO_NS_CHUNK_SIZE*
  * range: 1 -> G_MAXINT64
 
-### ns.flat_bits
-
-> Default number of bits with flat-NS computation.
-
- * default: **17**
- * type: guint
- * cmake directive: *OIO_NS_FLAT_BITS*
- * range: 0 -> 64
-
 ### ns.master
 
 > TODO: to be documented
@@ -706,7 +697,7 @@ Used by `gcc`
 
 ### ns.meta1_digits
 
-> Default number of digits to agregate meta1 databases.
+> Default number of digits to aggregate meta1 databases.
 
  * default: **4**
  * type: guint
@@ -928,7 +919,7 @@ Used by `gcc`
 
 ### proxy.srv_local.prepare
 
-> Should the proxy allocate services with a local preference. 0 for no, 1 for only one local service and 2 for a maximum of services in spite of the location constraints. The value 2 is a quirk that should be avoided unless upon exceptional conditon wherein you accept the risk.
+> Should the proxy allocate services with a local preference. 0 for no, 1 for only one local service and 2 for a maximum of services in spite of the location constraints. The value 2 is a quirk that should be avoided unless upon exceptional condition wherein you accept the risk.
 
  * default: **0**
  * type: gint
@@ -1040,7 +1031,7 @@ Used by `gcc`
 
 ### resolver.cache.csm0.max.default
 
-> In any service resolver instanciated, sets the maximum number of entries related to meta0 (meta1 addresses) and conscience (meta0 address)
+> In any service resolver instantiated, sets the maximum number of entries related to meta0 (meta1 addresses) and conscience (meta0 address)
 
  * default: **4194304**
  * type: guint
@@ -1049,7 +1040,7 @@ Used by `gcc`
 
 ### resolver.cache.csm0.ttl.default
 
-> In any service resolver instanciated, sets the default TTL on the entries related meta0 (meta1 addresses) and conscience (meta0 address)
+> In any service resolver instantiated, sets the default TTL on the entries related meta0 (meta1 addresses) and conscience (meta0 address)
 
  * default: **0**
  * type: gint64
@@ -1066,7 +1057,7 @@ Used by `gcc`
 
 ### resolver.cache.root.max.default
 
-> In any shard resolver instanciated, sets the maximum number of root entries
+> In any shard resolver instantiated, sets the maximum number of root entries
 
  * default: **4096**
  * type: guint
@@ -1075,7 +1066,7 @@ Used by `gcc`
 
 ### resolver.cache.root.ttl.default
 
-> In any shard resolver instanciated, sets the default TTL on the root entries
+> In any shard resolver instantiated, sets the default TTL on the root entries
 
  * default: **0**
  * type: gint64
@@ -1084,7 +1075,7 @@ Used by `gcc`
 
 ### resolver.cache.shards.max.default
 
-> In any shard resolver instanciated, sets the maximum number of shards entries per root
+> In any shard resolver instantiated, sets the maximum number of shards entries per root
 
  * default: **16**
  * type: guint
@@ -1093,7 +1084,7 @@ Used by `gcc`
 
 ### resolver.cache.srv.max.default
 
-> In any service resolver instanciated, sets the maximum number of meta1 entries (data-bound services)
+> In any service resolver instantiated, sets the maximum number of meta1 entries (data-bound services)
 
  * default: **4194304**
  * type: guint
@@ -1102,7 +1093,7 @@ Used by `gcc`
 
 ### resolver.cache.srv.ttl.default
 
-> In any service resolver instanciated, sets the default TTL on the meta1 entries (data-bound services)
+> In any service resolver instantiated, sets the default TTL on the meta1 entries (data-bound services)
 
  * default: **0**
  * type: gint64
@@ -1262,7 +1253,7 @@ Used by `gcc`
 
 ### server.queue.max_delay
 
-> Anti-DDoS counter-mesure. In the current server, sets the maximum amount of time a queued TCP event may remain in the queue. If an event is polled and the thread sees the event stayed longer than that delay, the connection is immediately closed. Keep this value rather high because the connection closing doesn't involve a reply that will help the client to retry with an exponential back-off.
+> Anti-DDoS counter-measure. In the current server, sets the maximum amount of time a queued TCP event may remain in the queue. If an event is polled and the thread sees the event stayed longer than that delay, the connection is immediately closed. Keep this value rather high because the connection closing doesn't involve a reply that will help the client to retry with an exponential back-off.
 
  * default: **60 * G_TIME_SPAN_SECOND**
  * type: gint64

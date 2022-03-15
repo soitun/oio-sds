@@ -19,7 +19,6 @@ import random
 import time
 
 from oio import ObjectStorageApi
-from oio.common.autocontainer import HashedContainerBuilder
 from oio.common.utils import cid_from_name
 from oio.event.evob import EventTypes
 from tests.functional.cli import CliTestCase
@@ -29,14 +28,11 @@ from tests.utils import random_str
 class ItemCheckTest(CliTestCase):
     """Functional tests for item to check."""
 
-    FLAT_BITS = 5
-
     @classmethod
     def setUpClass(cls):
         super(ItemCheckTest, cls).setUpClass()
         cls.check_opts = cls.get_opts(['Type', 'Item', 'Status'])
         cls.api = ObjectStorageApi(cls._cls_ns, endpoint=cls._cls_uri)
-        cls.autocontainer = HashedContainerBuilder(bits=cls.FLAT_BITS)
         # Prevent the chunks' rebuilds or moves by the crawlers
         cls._service('oio-rdir-crawler-1.service', 'stop')
         cls._service('oio-rawx-crawler-1.service', 'stop', wait=3)
@@ -74,15 +70,6 @@ class ItemCheckTest(CliTestCase):
             account, container, obj_name)
         self._wait_events(account, container, obj_name)
         return obj_meta, obj_chunks
-
-    def create_object_auto(self, account, obj_name):
-        container = self.autocontainer(obj_name)
-        self.api.object_create(
-            account, container, obj_name=obj_name, data='test_item_check')
-        obj_meta, obj_chunks = self.api.object_locate(
-            account, container, obj_name)
-        self._wait_events(account, container, obj_name)
-        return container, obj_meta, obj_chunks
 
     def corrupt_chunk(self, chunk):
         _, service_id, chunk_id = chunk.rsplit('/', 2)
@@ -820,32 +807,6 @@ class ItemCheckTest(CliTestCase):
         output = self.openio_admin(
             '--oio-account %s object check %s %s %s'
             % (self.account, self.container, self.obj_name,
-               self.check_opts))
-        self.assert_list_output(expected_items, output)
-
-    def test_object_check_with_auto(self):
-        self.container, obj_meta, obj_chunks = self.create_object_auto(
-            self.account, self.obj_name)
-        cid = cid_from_name(self.account, self.container)
-
-        expected_items = list()
-        expected_items.append('account account=%s OK' % self.account)
-        expected_items.append(
-            'container account=%s, container=%s, cid=%s OK'
-            % (self.account, self.container, cid))
-        expected_items.append(
-            'object account=%s, container=%s, cid=%s, obj=%s, content_id=%s, '
-            'version=%s OK'
-            % (self.account, self.container, cid, self.obj_name,
-               obj_meta['id'], obj_meta['version']))
-        for chunk in obj_chunks:
-            expected_items.append(
-                'chunk chunk=%s OK' % (chunk['url']))
-
-        # Check all items
-        output = self.openio_admin(
-            '--oio-account %s object check %s --auto --flat-bits %d %s'
-            % (self.account, self.obj_name, self.FLAT_BITS,
                self.check_opts))
         self.assert_list_output(expected_items, output)
 

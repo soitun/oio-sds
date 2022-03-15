@@ -106,9 +106,7 @@ class ObjectCommandMixin(CommandMixin):
         parser.add_argument(
             'container',
             metavar='<container_name>',
-            nargs='?',
-            help=("Name or cid of the container to interact with.\n" +
-                  "Optional if --auto is specified.")
+            help="Name or cid of the container to interact with."
         )
         parser.add_argument(
             'objects',
@@ -123,62 +121,29 @@ class ObjectCommandMixin(CommandMixin):
                   "one object is specified on command line.")
         )
         parser.add_argument(
-            '--auto',
-            action="store_true",
-            help=("Auto-generate the container name according to the " +
-                  "'flat_*' namespace parameters (<container> is ignored)."),
-        )
-        parser.add_argument(
-            '--flat-bits',
-            type=int,
-            help="Number of bits for flat-NS computation",
-        )
-        parser.add_argument(
             '--cid',
             action='store_true',
             dest='is_cid',
             help="Interpret <container_name> as a container ID",
         )
 
-    # TODO(FVE): merge with oio.cli.object.object.ContainerCommandMixin
     def check_and_load_parsed_args(self, app, parsed_args):
-        if not parsed_args.container and not parsed_args.auto:
-            from argparse import ArgumentError
-            raise ArgumentError(parsed_args.container,
-                                "Missing value for container_name or --auto")
-        # If we are generating the container name automatically,
-        # the first object name is in the container variable.
-        if parsed_args.auto:
-            parsed_args.objects.append(parsed_args.container)
-            parsed_args.container = None
-        if not parsed_args.objects:
-            from argparse import ArgumentError
-            raise ArgumentError(None, 'Missing value for object_name')
-        if parsed_args.flat_bits:
-            app.client_manager.flatns_set_bits(parsed_args.flat_bits)
+        pass
 
     def resolve_objects(self, app, parsed_args):
         containers = set()
         objects = list()
-        if parsed_args.auto:
-            account = app.options.account
-            autocontainer = app.client_manager.flatns_manager
-            for obj in parsed_args.objects:
-                ct = autocontainer(obj)
-                containers.add(ct)
-                objects.append((ct, obj, parsed_args.object_version))
+        if parsed_args.is_cid:
+            account, container = \
+                app.client_manager.storage.resolve_cid(
+                    parsed_args.container)
         else:
-            if parsed_args.is_cid:
-                account, container = \
-                    app.client_manager.storage.resolve_cid(
-                        parsed_args.container)
-            else:
-                account = app.options.account
-                container = parsed_args.container
-            containers.add(container)
-            for obj in parsed_args.objects:
-                objects.append(
-                    (container, obj, parsed_args.object_version))
+            account = app.options.account
+            container = parsed_args.container
+        containers.add(container)
+        for obj in parsed_args.objects:
+            objects.append(
+                (container, obj, parsed_args.object_version))
         return account, containers, objects
 
 
