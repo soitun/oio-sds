@@ -14,7 +14,8 @@
 # License along with this library.
 
 from collections import namedtuple
-from os import makedirs, remove
+from os import makedirs, remove, posix_fadvise, \
+    POSIX_FADV_DONTNEED, POSIX_FADV_SEQUENTIAL
 from os.path import isdir
 from shutil import move
 
@@ -96,14 +97,21 @@ class Checksum(Filter):
 
     @staticmethod
     def _get_file_hash(chunk_path, chunk_checksum_algo,
-                       buf_size=READ_CHUNK_SIZE):
+                       buf_size=READ_CHUNK_SIZE,
+                       expected_size=None):
         with open(chunk_path, 'rb') as chunk_file:
+            if expected_size:
+                posix_fadvise(chunk_file.fileno(), 0, expected_size,
+                              POSIX_FADV_SEQUENTIAL)
             hasher = get_hasher(chunk_checksum_algo)
             while True:
                 data = chunk_file.read(buf_size)
                 if not data:
                     break
                 hasher.update(data)
+            if expected_size:
+                posix_fadvise(chunk_file.fileno(), 0, expected_size,
+                              POSIX_FADV_DONTNEED)
             return hasher.hexdigest().upper()
 
     def error(self, chunk, container_id, msg):
@@ -178,8 +186,10 @@ class Checksum(Filter):
             chunk_checksum_algo = \
                 'md5' if len(chunk_hash) == 32 else 'blake3'
         try:
-            file_hash = self._get_file_hash(chunk.chunk_path,
-                                            chunk_checksum_algo)
+            expected_size = int(chunk.meta.get('chunk_size', 0))
+            file_hash = self._get_file_hash(
+                chunk.chunk_path, chunk_checksum_algo,
+                expected_size=expected_size)
 
             self.logger.debug('chunk_hash=%s file_hash=%s algo=%s',
                               chunk_hash, file_hash, chunk_checksum_algo)

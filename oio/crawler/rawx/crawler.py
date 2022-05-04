@@ -52,7 +52,7 @@ class RawxWorker(CrawlerWorker):
                                  chunk.chunk_path)
                 self.invalid_paths += 1
                 return False
-            with open(chunk.chunk_path, 'rb') as chunk_file:
+            with open(chunk.chunk_path, 'rb', buffering=0) as chunk_file:
                 # A supposition is made: metadata will not change during the
                 # process of all filters
                 chunk.meta, _ = read_chunk_metadata(chunk_file, chunk.chunk_id)
