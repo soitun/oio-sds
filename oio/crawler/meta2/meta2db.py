@@ -66,6 +66,31 @@ def _fetch_system(meta2db):
         meta2db_conn.close()
 
 
+def _fetch_user(meta2db):
+    meta2db_conn = None
+    try:
+        meta2db_conn = sqlite3.connect(f'file:{meta2db.path}?mode=ro',
+                                       uri=True)
+    except sqlite3.OperationalError:
+        # Check if the meta2 database still exists
+        try:
+            os.stat(meta2db.path)
+        except FileNotFoundError:
+            raise
+        except Exception:
+            pass
+        raise
+    try:
+        user = dict()
+        meta2db_cursor = meta2db_conn.cursor()
+        for key, value in meta2db_cursor.execute(
+                'SELECT k, v FROM admin WHERE k LIKE "user.%Lifecycle"').fetchall():
+            user[key] = value
+        return debinarize(user)
+    finally:
+        meta2db_conn.close()
+
+
 class Meta2DB(object):
 
     path = _meta2db_env_property('path')
@@ -76,6 +101,8 @@ class Meta2DB(object):
         'file_status', fetch_value_function=_fetch_file_status)
     system = _meta2db_env_property(
         'admin_table', fetch_value_function=_fetch_system)
+    user = _meta2db_env_property(
+        'admin_table', fetch_value_function=_fetch_user)
 
     def __init__(self, app_env, env):
         self.app_env = app_env

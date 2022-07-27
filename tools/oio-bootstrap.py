@@ -315,7 +315,7 @@ log_address = /dev/log
 syslog_prefix = OIO,${NS},${SRVTYPE}
 
 [pipeline:main]
-pipeline = logger draining auto_vacuum auto_sharding
+pipeline = logger lifecycle draining auto_vacuum auto_sharding
 
 [filter:auto_sharding]
 use = egg:oio#auto_sharding
@@ -337,6 +337,9 @@ hard_max_unused_pages_ratio = 0.2
 use = egg:oio#draining
 drain_limit = 1000
 drain_limit_per_pass = 100000
+
+[filter:lifecycle]
+use = egg:oio#lifecycle
 
 [filter:logger]
 use = egg:oio#logger
