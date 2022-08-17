@@ -563,6 +563,65 @@ class LifecycleRuleFilter(object):
 
         return filter_elt
 
+    def to_sql_query(self, formated_time=None, **kwargs):
+        #_query = 'SELECT * FROM aliases AS al '
+        # Beginning of query will be force by meta2 code to avoid
+        # update or delete queries
+        _query = ' '
+        nb_filters = len(self.tags)
+        if self.prefix is not None:
+            nb_filters += 1
+        if nb_filters == 0:
+            # No filter condition is equivalent to empty filter
+            return _query
+
+        _lesser = ''
+        if self.lesser is not None:
+            _lesser  =' INNER JOIN contents ct ON al.content = ct.id AND '\
+                      'ct.size <'f'{self.lesser}'
+
+        _greater = ''
+        if self.greater is not None:
+            _greater  =' INNER JOIN contents ct ON al.content = ct.id AND '\
+                      'ct.size >'f'{self.greater}'
+
+        if len(self.tags) > 0:
+            _base_tag = ' INNER JOIN properties pr ON al.alias = pr.alias '
+            _tags = ''
+            for k, v in self.tags.items():
+
+                tag_elt = etree.Element('Tag')
+                key_elt = etree.Element('Key')
+                key_elt.text = k
+                tag_elt.append(key_elt)
+                value_elt = etree.Element('Value')
+                value_elt.text = v
+                tag_elt.append(value_elt)
+                _key_cond = 'AND pr.key=\'x-object-sysmeta-swift3-tagging\''
+                _tag_key_cond = f' AND pr.value LIKE \'<Tag><Key>{k}</Key>'
+                _tag_val_cond = f'<Value>{v}</Value></Tag>\''
+                _tags = f'{_tags}{_key_cond}{_tag_key_cond}{_tag_val_cond}'
+
+            if _tags:
+                _query = f'{_query}{_base_tag}{_tags}'
+
+        if _lesser:
+                _query = f'{_query}{_lesser}'
+
+        if _greater:
+                _query = f'{_query}{_greater}'
+
+        if self.prefix is not None:
+            _prefix_cond = ' WHERE ( al.alias LIKE \'' f'{self.prefix}''%\''
+            _query = f'{_query}{_prefix_cond}'
+        if formated_time is not None:
+            _time_cond = f' AND (al.mtime + {formated_time}) < (CAST (strftime(\'%s\', \'now\') AS INTEGER ))'
+            _query = f'{_query}{_time_cond}'
+        # close WHERE clause
+        _query = f'{_query} )'
+
+        return _query
+
     def __str__(self):
         return etree.tostring(self._to_element_tree()).decode("utf-8")
 
