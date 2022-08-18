@@ -37,6 +37,7 @@ SERVICE_ID=
 RANDOM_SERVICE_ID=
 PROFILE=
 DATADIR="$SDS/data"
+FDBCLUSTER="$SDS/conf/$NS-fdb.cluster"
 
 ZKSLOW=0
 verbose=0
@@ -135,6 +136,11 @@ fi
 
 $SYSTEMCTL daemon-reload
 $SYSTEMCTL start oio-cluster.target
+
+if [ -f "${FDBCLUSTER}" ]; then
+    # Configure FoundationDB cluster
+    sleep 5; fdbcli -C "${FDBCLUSTER}" --exec "configure new ssd single"
+fi
 
 COUNT=$(oio-test-config.py -c -t meta2 -t rawx -t meta0 -t meta1 -t rdir)
 $cmd_openio cluster wait -vvv --debug -d 60 -u -n "$COUNT" rawx meta2 meta0 meta1 rdir

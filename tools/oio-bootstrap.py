@@ -176,10 +176,8 @@ Type=simple
 Environment=PATH=${PATH}
 Environment=LD_LIBRARY_PATH=${LIBDIR}
 Environment=HOME=${HOME}
-#ExecStartPre=/usr/sbin/service foundationdb stop
 ExecStart=${fdbmonitor} --conffile ${CFGDIR}/${NS}-${SRVTYPE}-${SRVNUM}.conf --lockfile ${RUNDIR}/${NS}-${SRVTYPE}-${SRVNUM}.pid
 ExecStartPost=/usr/bin/timeout 30 sh -c 'while ! ss -H -t -l -n sport = :${PORT} | grep -q "^LISTEN.*:${PORT}"; do sleep 1; done'
-ExecStartPost=/bin/sleep 5 ; ${fdbcli} -C ${CLUSTERFILE} --exec "configure new ssd single"
 
 [Install]
 WantedBy=${PARENT}
