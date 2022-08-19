@@ -4682,3 +4682,23 @@ enum http_rc_e action_content_drain(struct req_args_s *args) {
 enum http_rc_e action_content_purge (struct req_args_s *args) {
 	return rest_action (args, action_m2_content_purge);
 }
+
+static enum http_rc_e
+action_m2_container_lifecycle_copy_db(struct req_args_s *args,
+		struct json_object *j UNUSED)
+{
+	GError *err = NULL;
+	if (!err) {
+		PACKER_VOID(_pack) {
+			return m2v2_remote_pack_COPY_DB_LIFECYCLE(args->url, DL());
+		};
+		err = _resolve_meta2(args, _prefer_master(), _pack, NULL, NULL);
+	}
+	return _reply_m2_error(args, err);
+}
+
+enum http_rc_e
+action_container_lifecycle_copy_db(struct req_args_s *args)
+{
+	return rest_action(args, action_m2_container_lifecycle_copy_db);
+}
