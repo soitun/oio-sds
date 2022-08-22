@@ -160,24 +160,33 @@ class RdirWorker(object):
 
     def _rebuild_chunk(self, container_id, chunk_id, value, reqid):
         try:
+            import sys
+            print('-- VME TOTO A', file=sys.stderr)
             self.chunk_operator.rebuild(
                 container_id, value['content_id'], chunk_id,
                 rawx_id=self.volume_id, path=value.get('path'),
                 version=value.get('version'), reqid=reqid)
+            print('-- VME TOTO B', file=sys.stderr)
             self.repaired += 1
         except exc.OioException as err:
             self.errors += 1
+            import sys
+            print('-- VME TOTO 1', file=sys.stderr)
             if isinstance(err, exc.UnrecoverableContent):
+                print('-- VME TOTO 2', file=sys.stderr)
                 self.unrecoverable_content += 1
                 if self._check_rawx_up():
+                    print('-- VME TOTO 3', file=sys.stderr)
                     error = '%(err)s, action required' % {'err': str(err)}
                     self.error(container_id, chunk_id, error, reqid=reqid)
             elif isinstance(err, exc.OrphanChunk):
                 # Note for later: if it an orphan chunk, we should tag it and
                 # increment a counter for stats. Another tool could be
                 # responsible for those tagged chunks.
+                print('-- VME TOTO 4', file=sys.stderr)
                 self.orphans += 1
             else:
+                print('-- VME TOTO 5', file=sys.stderr)
                 error = '%(err)s, not possible to get list of rawx' \
                     % {'err': str(err)}
                 self.error(container_id, chunk_id, error, reqid=reqid)
