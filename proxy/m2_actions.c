@@ -4684,21 +4684,40 @@ enum http_rc_e action_content_purge (struct req_args_s *args) {
 }
 
 static enum http_rc_e
-action_m2_container_lifecycle_copy_db(struct req_args_s *args,
-		struct json_object *j UNUSED)
+action_m2_container_lifecycle_copy_db(struct req_args_s *args, struct json_object *j)
 {
 	GError *err = NULL;
-	if (!err) {
+	gboolean truncated = FALSE;
+	GSList *beans = NULL;
+	gboolean make_copy = _request_get_flag(args, "local");
+	if(make_copy == FALSE){
+		err = _load_simplified_shard_ranges(j, &beans);
+		if (!err) {
+			PACKER_VOID(_pack) {
+				return m2v2_remote_pack_COPY_DB_LIFECYCLE(args->url, beans,
+						make_copy, DL());
+			};
+			err = _resolve_meta2(args, _prefer_master(), _pack, &truncated,
+					m2v2_boolean_truncated_extract);
+			oio_ext_allow_long_timeout(FALSE);
+			args->rp->add_header(PROXYD_HEADER_PREFIX "truncated",
+					g_strdup(truncated ? "true" : "false"));
+		}
+	} else
+	{
 		PACKER_VOID(_pack) {
-			return m2v2_remote_pack_COPY_DB_LIFECYCLE(args->url, DL());
-		};
-		err = _resolve_meta2(args, _prefer_master(), _pack, NULL, NULL);
+			return m2v2_remote_pack_COPY_DB_LIFECYCLE(args->url, NULL,
+					make_copy, DL());
+			};
+		err = _resolve_meta2(args, _prefer_master(), _pack, &truncated,
+				m2v2_boolean_truncated_extract);
+	}
+	if (beans) {
+		_bean_cleanl2(beans);
 	}
 	return _reply_m2_error(args, err);
 }
 
-enum http_rc_e
-action_container_lifecycle_copy_db(struct req_args_s *args)
-{
-	return rest_action(args, action_m2_container_lifecycle_copy_db);
+enum http_rc_e action_container_lifecycle_copy_db (struct req_args_s *args) {
+	return rest_action (args, action_m2_container_lifecycle_copy_db);
 }

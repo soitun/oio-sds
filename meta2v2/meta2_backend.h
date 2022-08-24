@@ -287,7 +287,11 @@ GError* meta2_backend_show_sharding(struct meta2_backend_s *m2b,
 GError* meta2_backend_abort_sharding(struct meta2_backend_s *m2b,
 		struct oio_url_s *url);
 
+/*Lifecycle */
 GError* meta2_backend_copy_db_lifecycle(struct meta2_backend_s *m2b,
 		struct oio_url_s *url);
+
+GError* meta2_backend_apply_rule_lifecycle(struct meta2_backend_s *m2b,
+		struct oio_url_s *url,  GSList * beans);
 
 #endif /*OIO_SDS__meta2v2__meta2_backend_h*/
