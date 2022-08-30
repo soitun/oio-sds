@@ -200,6 +200,7 @@ _init_notifiers(struct meta2_backend_s *m2, const char *ns)
 	INIT(m2->notifier_content_drained, oio_meta2_tube_content_drained);
 
 	INIT(m2->notifier_meta2_deleted, oio_meta2_tube_meta2_deleted);
+	INIT(m2->notifier_lifecycle_generated, oio_meta2_tube_lifecycle_generated);
 
 	return err;
 }
@@ -278,6 +279,7 @@ meta2_backend_clean(struct meta2_backend_s *m2)
 	CLEAN(m2->notifier_content_drained);
 
 	CLEAN(m2->notifier_meta2_deleted);
+	CLEAN(m2->notifier_lifecycle_generated);
 
 	g_hash_table_unref(m2->prepare_data_cache);
 	m2->prepare_data_cache = NULL;
@@ -378,23 +380,25 @@ _is_container_initiated(struct sqlx_sqlite3_s *sq3)
 	return FALSE;
 }
 
+static void sep (GString *gs1) {
+	if (gs1->len > 1 && !strchr(",[{", gs1->str[gs1->len-1]))
+		g_string_append_c(gs1, ',');
+}
+
+static void append_int64 (GString *gs1, const char *k, gint64 v) {
+	sep(gs1);
+	g_string_append_printf(gs1, "\"%s\":%"G_GINT64_FORMAT, k, v);
+}
+
+static void append_str(GString *gs1, const char *k, gchar *v) {
+	sep(gs1);
+	oio_str_gstring_append_json_pair(gs1, k, v);
+	g_free(v);
+}
+
 static gchar *
 _container_state(struct sqlx_sqlite3_s *sq3, gboolean deleted)
 {
-	void sep (GString *gs1) {
-		if (gs1->len > 1 && !strchr(",[{", gs1->str[gs1->len-1]))
-			g_string_append_c(gs1, ',');
-	}
-	void append_int64 (GString *gs1, const char *k, gint64 v) {
-		sep(gs1);
-		g_string_append_printf(gs1, "\"%s\":%"G_GINT64_FORMAT, k, v);
-	}
-	void append_str(GString *gs1, const char *k, gchar *v) {
-		sep(gs1);
-		oio_str_gstring_append_json_pair(gs1, k, v);
-		g_free(v);
-	}
-
 	gchar **properties = NULL;
 	struct oio_url_s *url = sqlx_admin_get_url(sq3);
 	GString *gs = oio_event__create_with_id(
@@ -3857,7 +3861,7 @@ end:
 
 GError*
 meta2_backend_apply_rule_lifecycle(struct meta2_backend_s *m2b,
-		struct oio_url_s *url, GSList *beans)
+		struct oio_url_s *url, GSList *beans, guint32 *incr_offset)
 {
 	GError *err = NULL;
 	struct sqlx_sqlite3_s *sq3 = NULL;
@@ -3867,18 +3871,16 @@ meta2_backend_apply_rule_lifecycle(struct meta2_backend_s *m2b,
 
 	char *action = NULL;
 	char *query = NULL;
-	gint64 days = 0;
-	char *date = NULL;
+	char *priority = NULL;
 
 	struct json_object *json = NULL;
 	struct json_object *jaction = NULL, *jquery = NULL,
-			*jdays = NULL, *jdate = NULL;
+			*jpriority = NULL;
 	struct oio_ext_json_mapping_s mapping[] = {
-		{"action",  &jaction, json_type_string, 1},
-		{"query",   &jquery,  json_type_string, 1},
-		{"days",    &jdays,   json_type_int, 0},
-		{"date",    &jdate,   json_type_string, 0},
-		{NULL,      NULL,     0,                0}
+		{"action",  &jaction, 	json_type_string, 1},
+		{"query",   &jquery,  	json_type_string, 1},
+		{"priority",&jpriority, json_type_string, 1},
+		{NULL,      NULL,     0,             0}
 	};
 
 	EXTRA_ASSERT(m2b != NULL);
@@ -3911,12 +3913,11 @@ meta2_backend_apply_rule_lifecycle(struct meta2_backend_s *m2b,
 
 		action = g_strdup(json_object_get_string(jaction));
 		query = g_strdup(json_object_get_string(jquery));
-		days = json_object_get_int(jdays);
-		date = g_strdup(json_object_get_string(jdate));
+		priority = g_strdup(json_object_get_string(jpriority));
 	}
 
 	gchar *full_query = g_strdup_printf("%s %s", base_query, query);
-	GRID_ERROR("metadata : %s %s %s %s %"G_GINT64_FORMAT, action, full_query,base_query, query, days);
+	GRID_ERROR("metadata : action:%s full:%s base:%s %s prio:%s", action, full_query,base_query, query, priority);
 
 	struct m2_open_args_s open_args = {
 			M2V2_OPEN_LOCAL|M2V2_OPEN_NOREFCHECK,
@@ -3940,23 +3941,44 @@ meta2_backend_apply_rule_lifecycle(struct meta2_backend_s *m2b,
 	if (rc != SQLITE_OK && rc != SQLITE_DONE) {
 		GRID_WARN("Failed apply query %s %s", full_query, sqlite3_errmsg(sq3->db));
 	}
-
+	guint32 count_rows = 0;
 	while (SQLITE_ROW == (rc = sqlite3_step(stmt))) {
-		const guint8 *alias = sqlite3_column_text(stmt, 0);
+		gint64 timestamp_start = oio_ext_real_time();
+
+		gchar *object_name = g_strdup((gchar *) sqlite3_column_text(stmt, 0));
 		gint64 version = sqlite3_column_int64(stmt, 1);
 		gint64 ctime = sqlite3_column_int64(stmt, 4);
 		GRID_ERROR("before event %s %"G_GINT64_FORMAT " %"G_GINT64_FORMAT,
-				alias, version, ctime);
+				object_name, version, ctime);
+		GString *event = oio_event__create_with_id(
+				"storage.lifecycle.action", url, oio_ext_get_reqid());
+		g_string_append(event, ",\"data\":{");
+		append_str(event, "account", sqlx_admin_get_str(sq3, SQLX_ADMIN_ACCOUNT));
+		append_str(event, "bucket", sqlx_admin_get_str(sq3, M2V2_ADMIN_BUCKET_NAME));
+		append_str(event, "object", object_name);
+		append_int64(event, "version", version);
+		append_int64(event, "ctime", ctime);
+		append_str(event, "action", g_strdup(action));
+		append_str(event, "priority", g_strdup(priority));
+
+		g_string_append(event, "}}");
+		oio_events_queue__send(
+			m2b->notifier_lifecycle_generated, g_string_free(event, FALSE));
+
+		gint64 timestamp_end = oio_ext_real_time();
+		GRID_ERROR("event prepare & send timing:%"G_GINT64_FORMAT,
+				timestamp_end - timestamp_start);
+		count_rows++;
 	}
 	rc = sqlite3_finalize(stmt);
 	if (rc != SQLITE_DONE && rc != SQLITE_OK) {
 		GRID_WARN("Failed again %s", sqlite3_errmsg(sq3->db));
 	}
-
+	*incr_offset = count_rows;
 	err = sqlx_transaction_end(repctx, err);
 	g_free(query);
 	g_free(action);
-	g_free(date);
+	g_free(priority);
 	g_free(full_query);
 
 close:
