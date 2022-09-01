@@ -46,6 +46,8 @@ class Lifecycle(Filter):
                 self.conf, pool_manager=self.api.container.pool_manager,
                 logger=self.logger)
 
+        self.batch_size = 2
+
     def process(self, env, cb):
         try:
             meta2db = Meta2DB(self.app_env, env)
@@ -73,32 +75,45 @@ class Lifecycle(Filter):
                             date = ''
                             if isinstance(act.filter, DaysActionFilter):
                                 days = act.filter.days
-                            if isinstance(act.filter, DateActionFilter):
-                                date = act.fitler.date
+                            #if isinstance(act.filter, DateActionFilter):
+                            #    date = act.fitler.date
 
                             #TODO convert days or date to seconds
                             days_in_sec = int(days) * 86400
-                            sql_query = el.filter.to_sql_query(days_in_sec)
-                            print('laa sql_query:', sql_query)
-                            kwargs = {}
-                            params = {'cid': meta2db.cid}
-                            data = []
-                            tmp_data = {}
-                            tmp_data['cid'] = meta2db.cid
-                            tmp_data['lower'] = '>'
-                            tmp_data['upper'] = '<'
-                            tmp_data['metadata'] = {}
-                            tmp_data['metadata']['action'] = 'expiration'
-                            tmp_data['metadata']['query'] = sql_query
-                            tmp_data['metadata']['days'] = days
-                            tmp_data['metadata']['date'] = '2023:01:01'
-                            data.append(tmp_data)
-                            try:
-                                resp, body = self.proxy_client._request(
-                                    'POST', '/container/lifecycle-copy',
-                                    params=params, json=data, **kwargs)
-                            except BadRequest:
-                                raise
+                            ##FOR TEST
+                            days_in_sec = 0
+                            ###
+                            base_sql_query = el.filter.to_sql_query(days_in_sec)
+                            print('laa sql_query:', base_sql_query)
+
+                            offset = 0
+                            while True:
+
+                                sql_query = f'{base_sql_query} limit {self.batch_size} offset {offset}'
+                                kwargs = {}
+                                params = {'cid': meta2db.cid}
+                                data = []
+                                tmp_data = {}
+                                tmp_data['cid'] = meta2db.cid
+                                tmp_data['lower'] = '>'
+                                tmp_data['upper'] = '<'
+                                tmp_data['metadata'] = {}
+                                tmp_data['metadata']['action'] = 'expiration'
+                                tmp_data['metadata']['query'] = sql_query
+                                tmp_data['metadata']['priority'] = '0'
+                                data.append(tmp_data)
+                                try:
+                                    resp, body = self.proxy_client._request(
+                                        'POST', '/container/lifecycle-copy',
+                                        params=params, json=data, **kwargs)
+                                    count = int(resp.getheader('x-oio-count'))
+                                    print('laa truncated count', count)
+                                    if count == 0:
+                                        break
+                                    print('laa truncated count', count)
+                                    offset += count
+                                except BadRequest:
+                                    raise
                 except BadRequest:
                     raise
                 except Exception as exc:
