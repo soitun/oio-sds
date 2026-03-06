@@ -326,8 +326,9 @@ conscience_srv_fill_srvinfo(struct service_info_s *dst,
 }
 
 #define conscience_srv_clean_udata(srv) do { \
-	if (srv->cache) g_byte_array_unref(srv->cache); \
+	GByteArray *_cache = srv->cache; \
 	srv->cache = NULL; \
+	if (_cache) g_byte_array_unref(_cache); \
 } while (0)
 
 static GByteArray *
@@ -1546,18 +1547,25 @@ _prepare_cached(struct conscience_srv_s *srv, gpointer u)
 	EXTRA_ASSERT(srv != NULL);
 	EXTRA_ASSERT(gba_body != NULL);
 
-	/* Reuse the serialized version of the service
-	 * that was made at registration time (saves CPU) */
-	if (srv->cache) {
-		g_byte_array_append(gba_body, srv->cache->data, srv->cache->len);
-		return TRUE;
-	} else {
-		/* Serialize the service without its tags and stats */
-		GByteArray *gba = _conscience_srv_serialize(srv);
-		g_byte_array_append(gba_body, gba->data, gba->len);
-		g_byte_array_free(gba, TRUE);
-		return TRUE;
+	/* Reuse the serialized version of the service when possible,
+	 * with explicit ownership to keep it valid while appending. */
+	GByteArray *cached = srv->cache;
+	if (cached) {
+		cached = g_byte_array_ref(cached);
+		if (cached->len > 0) {
+			g_byte_array_append(gba_body, cached->data, cached->len);
+			g_byte_array_unref(cached);
+			return TRUE;
+		}
+		GRID_WARN("Empty cached service payload for %s, regenerating",
+				srv->description);
+		g_byte_array_unref(cached);
 	}
+
+	GByteArray *gba = _conscience_srv_serialize(srv);
+	g_byte_array_append(gba_body, gba->data, gba->len);
+	g_byte_array_free(gba, TRUE);
+	return TRUE;
 }
 
 static gboolean
@@ -1884,10 +1892,10 @@ _task_expire (gpointer p UNUSED)
 	for (gchar **ptype=typev; typev && *ptype ;++ptype) {
 		struct conscience_srvtype_s *srvtype = conscience_get_srvtype(*ptype, FALSE);
 		EXTRA_ASSERT(srvtype != NULL);
-		g_rw_lock_reader_lock(&srvtype->rw_lock);
+		g_rw_lock_writer_lock(&srvtype->rw_lock);
 		guint count = conscience_srvtype_zero_expired(srvtype,
 				service_expiration_notifier, NULL);
-		g_rw_lock_reader_unlock(&srvtype->rw_lock);
+		g_rw_lock_writer_unlock(&srvtype->rw_lock);
 
 		if (count)
 			GRID_NOTICE("Expired [%u] [%s] services", count, *ptype);
