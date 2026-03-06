@@ -126,4 +126,30 @@ add_executable(test_kafka test_kafka.c)
 target_link_libraries(test_kafka oioevents ${ENLARGED} ${KAFKA_LIBRARIES})
 add_test(NAME events/kafka COMMAND test_kafka)
 
+# server.c includes expr.h / expr.yacc.h generated in the cluster/module build dir
+include_directories(BEFORE
+		${CMAKE_SOURCE_DIR}/cluster/module
+		${CMAKE_BINARY_DIR}/cluster/module)
+# Generated lex/yacc files trigger warnings incompatible with -Werror
+set_source_files_properties(
+    ${CMAKE_BINARY_DIR}/cluster/module/expr.lex.c
+    ${CMAKE_BINARY_DIR}/cluster/module/expr.yacc.c
+    PROPERTIES GENERATED TRUE COMPILE_FLAGS "-Wno-error=discarded-qualifiers"
+)
+add_executable(test_conscience_srv_cache 
+    test_conscience_srv_cache.c
+    ${CMAKE_SOURCE_DIR}/cluster/module/expr.clean.c
+    ${CMAKE_SOURCE_DIR}/cluster/module/expr.eval.c
+    ${CMAKE_BINARY_DIR}/cluster/module/expr.lex.c
+    ${CMAKE_BINARY_DIR}/cluster/module/expr.yacc.c
+)
+# Add dependency to ensure files are generated first
+add_dependencies(test_conscience_srv_cache conscience)
+
+# Match conscience binary link libraries (cluster/module/CMakeLists.txt)
+# since the test #includes cluster/module/server.c directly
+target_link_libraries(test_conscience_srv_cache
+		gridcluster server ${ENLARGED} ${ZMQ_LIBRARIES})
+add_test(NAME cluster/conscience/cache COMMAND test_conscience_srv_cache)
+
 endif (NOT SDK_ONLY)
