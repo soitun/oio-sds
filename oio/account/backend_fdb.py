@@ -3169,12 +3169,30 @@ class AccountBackendFdb(object):
         account = self._get_bucket_account(
             tr, bucket, account=account, check_owner=True
         )
-
+        is_timestamp_not_passed = False
         if mtime is None:
             mtime = self._get_timestamp()
+            is_timestamp_not_passed = True
 
         if region:
             region = region.upper()
+
+        # Do not use the ctime, it is not present for old buckets
+        bucket_space = self.bucket_space[account][bucket]
+        current_region = tr[bucket_space.pack((REGION_FIELD,))]
+        if not current_region.present():
+            raise Conflict(f"No update needed, Bucket {bucket} does not exist")
+
+        bucket_ctime = tr[bucket_space.pack((CTIME_FIELD,))]
+        if bucket_ctime.present():
+            bucket_ctime_value = self._unmarshal_field_value(
+                CTIME_FIELD, bucket_ctime.value
+            )
+            if is_timestamp_not_passed and mtime < bucket_ctime_value:
+                raise Conflict(
+                    "No update needed, the feature action time cannot be before the"
+                    f" bucket creation time: {bucket_ctime_value}"
+                )
 
         # Register action on bucket
         feature_space = self.bucket_space[account][bucket][FEATURE_FIELD][feature]
