@@ -661,6 +661,15 @@ Used by `gcc`
  * cmake directive: *OIO_META2_MAX_VERSIONS*
  * range: -1 -> G_MAXINT64
 
+### meta2.max_versions_per_object
+
+> Namespace configuration of the max number of versions for a single alias, in a container.
+
+ * default: **-1**
+ * type: gint64
+ * cmake directive: *OIO_META2_MAX_VERSIONS_PER_OBJECT*
+ * range: -1 -> G_MAXINT64
+
 ### meta2.reload.nsinfo.period
 
 > Sets the period of the periodical reloading of the namespace configuration, in the current meta2 service.

@@ -1229,6 +1229,10 @@
 				"key": "meta2.max_versions",
 				"descr": "Namespace configuration of the max number of versions for a single alias, in a container.",
 				"def": 1, "min": -1, "max": "max" },
+			{ "type": "int64", "name": "meta2_max_versions_per_object",
+				"key": "meta2.max_versions_per_object",
+				"descr": "Namespace configuration of the max number of versions for a single alias, in a container.",
+				"def": -1, "min": -1, "max": "max" },
 
 			{ "type": "uint", "name": "oio_socket_proxy_buflen",
 				"key": "socket.proxy.buflen",

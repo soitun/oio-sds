@@ -166,6 +166,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # define M2V2_ADMIN_DELETE_EXCEEDING_VERSIONS M2V2_ADMIN_VERSIONING_POLICY ".delete_exceeding"
 # endif
 
+# ifndef M2V2_ADMIN_MAX_VERSIONS_PER_OBJECT
+# define M2V2_ADMIN_MAX_VERSIONS_PER_OBJECT M2V2_ADMIN_PREFIX_SYS "max_versions_per_object"
+# endif
+
 # ifndef META2_INIT_FLAG
 # define META2_INIT_FLAG M2V2_ADMIN_PREFIX_SYS "init"
 # endif

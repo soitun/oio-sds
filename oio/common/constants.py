@@ -249,8 +249,10 @@ M2_PROP_SHARDING_TABLES_CLEANED = "sys.m2.sharding.tables.cleaned"
 M2_PROP_STORAGE_POLICY = "sys.m2.policy.storage"
 # Total number of bytes of objects held by the container.
 M2_PROP_USAGE = "sys.m2.usage"
-# Number of object versions to keep. -1 for unlimited.
+# Flag used used for versioning, disabled: 0, suspended: 1, enabled: <0 || >1
 M2_PROP_VERSIONING_POLICY = "sys.m2.policy.version"
+# Number of object versions to keep. -1 for unlimited. used to limit object versions
+M2_PROP_NB_VERSIONS = "sys.m2.max_versions_per_object"
 # Draining state for the container and its shards.
 M2_PROP_DRAINING_STATE = "sys.m2.draining.state"
 # Draining timestamp for the container and its shards.

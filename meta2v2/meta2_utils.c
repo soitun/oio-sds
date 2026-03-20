@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <glib.h>
 
 #include <core/oiolog.h>
+#include <core/client_variables.h>
 #include <meta2v2/meta2_backend_internals.h>
 #include <meta2v2/meta2_utils.h>
 #include <meta2v2/meta2_macros.h>
@@ -264,6 +265,18 @@ void
 m2db_set_max_versions(struct sqlx_sqlite3_s *sq3, gint64 max)
 {
 	sqlx_admin_set_i64(sq3, M2V2_ADMIN_VERSIONING_POLICY, max);
+}
+
+gint64
+m2db_get_max_versions_per_object(struct sqlx_sqlite3_s *sq3, gint64 def)
+{
+	return sqlx_admin_get_i64(sq3, M2V2_ADMIN_MAX_VERSIONS_PER_OBJECT, def);
+}
+
+void
+m2db_set_max_versions_per_object(struct sqlx_sqlite3_s *sq3, gint64 max)
+{
+	sqlx_admin_set_i64(sq3, M2V2_ADMIN_MAX_VERSIONS_PER_OBJECT, max);
 }
 
 gint64
@@ -1738,7 +1751,7 @@ _real_delete_aliases(struct sqlx_sqlite3_s *sq3, GPtrArray *aliases,
 }
 
 GError*
-m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
+m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 versioning_flag,
 		gboolean bypass_governance, gboolean create_delete_marker,
 		struct oio_url_s *url, m2_onbean_cb cb, gpointer u0,
 		gboolean *delete_marker_created)
@@ -1749,7 +1762,7 @@ m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
 
 	if (oio_url_has(url, OIOURL_VERSION)) {
 		version = g_ascii_strtoll(oio_url_get(url, OIOURL_VERSION), NULL, 10);
-		if (VERSIONS_DISABLED(max_versions) && version != 0) {
+		if (VERSIONS_DISABLED(versioning_flag) && version != 0) {
 			return NEWERROR(CODE_BAD_REQUEST,
 					"Versioning not supported and version specified");
 		}
@@ -1769,7 +1782,7 @@ m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
 		}
 
 		GRID_TRACE("DELETE_MARKER %s maxvers=%"G_GINT64_FORMAT" ver=%s",
-				oio_url_get(delete_marker_url, OIOURL_WHOLE), max_versions,
+				oio_url_get(delete_marker_url, OIOURL_WHOLE), versioning_flag,
 				oio_url_get(delete_marker_url, OIOURL_VERSION));
 	} else {
 		struct bean_ALIASES_s *alias = NULL;
@@ -1798,10 +1811,10 @@ m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
 		GRID_TRACE("CONTENT %s beans=%u maxvers=%"G_GINT64_FORMAT
 				" deleted=%d ver=%u/%s",
 				oio_url_get(url, OIOURL_WHOLE), g_slist_length(beans),
-				max_versions, ALIASES_get_deleted(alias),
+				versioning_flag, ALIASES_get_deleted(alias),
 				oio_url_has(url, OIOURL_VERSION), oio_url_get(url, OIOURL_VERSION));
 
-		if (VERSIONS_DISABLED(max_versions) || VERSIONS_SUSPENDED(max_versions) ||
+		if (VERSIONS_DISABLED(versioning_flag) || VERSIONS_SUSPENDED(versioning_flag) ||
 				oio_url_has(url, OIOURL_VERSION)) {
 			// Actually delete the object
 			if (bypass_governance && !ALIASES_get_deleted(alias)) {
@@ -1821,7 +1834,25 @@ m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
 						alias, header, cb, u0);
 			}
 		} else {
+			gint64 max_versions_for_container = m2db_get_max_versions_per_object(sq3, meta2_max_versions_per_object);
 			// Create a delete marker on latest version
+			if (max_versions_for_container > 1) {
+				gint64 count_versions = 0;
+				gchar *name = g_strdup(ALIASES_get_alias(alias)->str);
+				err = count_object_versions(sq3, name, &count_versions);
+				if (err) {
+					g_prefix_error(&err, "Failed to get count object versions: ");
+					g_free(name);
+					goto clean;
+				}
+				if ((count_versions >= max_versions_for_container)) {
+						err = NEWERROR(CODE_CONTENT_PRECONDITION,
+								"(delete marker) object reached max allowed versions %"G_GINT64_FORMAT, max_versions_for_container);
+						g_free(name);
+						goto clean;
+				}
+				g_free(name);
+			}
 			delete_marker_url = oio_url_dup(url);
 			oio_url_set(delete_marker_url, OIOURL_PATH,
 					ALIASES_get_alias(alias)->str);
@@ -2379,6 +2410,17 @@ cleanup:
 	return err;
 }
 
+
+GError* count_object_versions(struct sqlx_sqlite3_s *sq3, char *name, gint64 *count_versions) {
+	/*Count number of versions for given object */
+	GError *err = NULL;
+	GVariant *params[2] = {NULL, NULL};
+	params[0] = g_variant_new_string(name);
+	err = _db_count_bean(&descr_struct_ALIASES, sq3, "alias=?", params, count_versions);
+	metautils_gvariant_unrefv(params);
+	return err;
+}
+
 GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 		m2_onbean_cb cb_deleted, gpointer u0_deleted,
 		m2_onbean_cb cb_added, gpointer u0_added)
@@ -2386,6 +2428,8 @@ GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 	struct bean_ALIASES_s *latest = NULL;
 	GError *err = NULL;
 	gboolean purge_latest = FALSE;
+	gint64 count_versions = 0;
+	gboolean content_found = TRUE;
 
 	EXTRA_ASSERT(args != NULL);
 	EXTRA_ASSERT(args->sq3 != NULL);
@@ -2432,12 +2476,15 @@ GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 			g_prefix_error(&err, "Version error: ");
 			return err;
 		}
+		content_found = FALSE;
 		GRID_TRACE("Alias not yet present (1)");
 		g_clear_error(&err);
 	}
 
-	gint64 max_versions = m2db_get_max_versions(
+	gint64 versioning_flag = m2db_get_max_versions(
 			args->sq3, args->ns_max_versions);
+
+	gint64 max_versions_for_container = m2db_get_max_versions_per_object(args->sq3, meta2_max_versions_per_object);
 
 	/* Manage the potential conflict with the latest alias in place. */
 	const gint64 latest_version = latest? ALIASES_get_version(latest) : 0;
@@ -2448,7 +2495,7 @@ GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 				"latest_version=%"G_GINT64_FORMAT,
 				version, latest_version);
 	} else if (version < latest_version) {
-		if (VERSIONS_ENABLED(max_versions)) {
+		if (VERSIONS_ENABLED(versioning_flag)) {
 			/* Check if alias already exists */
 			struct oio_url_s *url2 = oio_url_dup(args->url);
 			if (!oio_url_has(url2, OIOURL_VERSION)) {
@@ -2470,7 +2517,7 @@ GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 
 	/* Check the operation respects the rules of versioning for the container */
 	if (!err && latest) {
-		if (VERSIONS_DISABLED(max_versions)) {
+		if (VERSIONS_DISABLED(versioning_flag)) {
 			if (ALIASES_get_deleted(latest) || ALIASES_get_version(latest) > 0) {
 				GRID_DEBUG("Versioning DISABLED but clues of SUSPENDED");
 				goto suspended;
@@ -2478,7 +2525,7 @@ GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 				err = NEWERROR(CODE_CONTENT_EXISTS, "versioning disabled + content present");
 			}
 		}
-		else if (VERSIONS_SUSPENDED(max_versions)) {
+		else if (VERSIONS_SUSPENDED(versioning_flag)) {
 suspended:
 			// JFS: do not alter the size to manage the alias being removed,
 			// this will be done by the real purge of the latest.
@@ -2487,6 +2534,17 @@ suspended:
 		else {
 			purge_latest = FALSE;
 		}
+	}
+
+	if (!purge_latest && (max_versions_for_container > 1) && VERSIONS_ENABLED(versioning_flag)) {
+		if (content_found) {
+			gchar *name = g_strdup(ALIASES_get_alias(latest)->str);
+			err = count_object_versions(args->sq3, name, &count_versions);
+			g_free(name);
+		}
+		if (!err && (count_versions >= max_versions_for_container))
+					err = NEWERROR(CODE_CONTENT_PRECONDITION,
+							"object reached max allowed versions %"G_GINT64_FORMAT, max_versions_for_container);
 	}
 
 	/* Perform the insertion now and patch the URL with the version */
@@ -2536,8 +2594,8 @@ suspended:
 	}
 
 	/* Purge the exceeding aliases */
-	if (!err && !purge_latest && latest && VERSIONS_LIMITED(max_versions))
-		m2db_purge_exceeding_versions(args->sq3, args->url, max_versions,
+	if (!err && !purge_latest && latest && VERSIONS_LIMITED(versioning_flag))
+		m2db_purge_exceeding_versions(args->sq3, args->url, versioning_flag,
 				cb_deleted, u0_deleted);
 
 	if (latest)

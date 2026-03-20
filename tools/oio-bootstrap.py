@@ -1541,6 +1541,7 @@ admin=${IP}:${PORT_ADMIN}
 template_meta_config = """
 [${NS}]
 events.kafka.options=client.id=${SERVICE_ID}
+meta2.max_versions_per_object=-1
 """
 
 template_systemd_service_event_agent = """

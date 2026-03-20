@@ -129,6 +129,10 @@ gint64 m2db_get_max_versions(struct sqlx_sqlite3_s *sq3, gint64 def);
 
 void m2db_set_max_versions(struct sqlx_sqlite3_s *sq3, gint64 max);
 
+gint64 m2db_get_max_versions_per_object(struct sqlx_sqlite3_s *sq3, gint64 def);
+
+void m2db_set_max_versions_per_object(struct sqlx_sqlite3_s *sq3, gint64 max);
+
 gint64 m2db_get_ctime(struct sqlx_sqlite3_s *sq3);
 
 void m2db_set_ctime(struct sqlx_sqlite3_s *sq3, gint64 now);
@@ -266,7 +270,7 @@ GError* m2db_set_properties(struct sqlx_sqlite3_s *sq3, struct oio_url_s *url,
 GError* m2db_drain_content(struct sqlx_sqlite3_s *sq3, struct oio_url_s *url,
 		m2_onbean_cb cb, gpointer u0);
 
-GError* m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 max_versions,
+GError* m2db_delete_alias(struct sqlx_sqlite3_s *sq3, gint64 versioning_flag,
 		gboolean bypass_governance, gboolean create_delete_marker,
 		struct oio_url_s *url, m2_onbean_cb cb, gpointer u0,
 		gboolean *delete_marker_created);
@@ -296,6 +300,8 @@ struct m2db_put_args_s
 	gint64 ns_max_versions;
 	gboolean preserve_chunk_ids;
 };
+
+GError* count_object_versions(struct sqlx_sqlite3_s *sq3, char *name, gint64 *count_versions);
 
 GError* m2db_put_alias(struct m2db_put_args_s *args, GSList *beans,
 		m2_onbean_cb cb_deleted, gpointer u0_deleted,
