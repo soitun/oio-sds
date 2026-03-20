@@ -19,9 +19,9 @@ import time
 
 import pytest
 
-from oio.common.constants import M2_PROP_VERSIONING_POLICY
+from oio.common.constants import M2_PROP_NB_VERSIONS, M2_PROP_VERSIONING_POLICY
 from oio.common.easy_value import true_value
-from oio.common.exceptions import NoSuchObject, OioTimeout
+from oio.common.exceptions import Conflict, NoSuchObject, OioTimeout
 from oio.common.utils import depaginate, request_id
 from tests.utils import BaseTestCase, random_str
 
@@ -42,6 +42,20 @@ class TestContentVersioning(BaseTestCase):
         except Exception:
             pass
         super().tearDown()
+
+    def _apply_conf_on_all(self, type_, conf):
+        all_svc = [x["addr"] for x in self.conf["services"][type_]]
+        for svc in all_svc:
+            self.admin.service_set_live_config(svc, conf, request_attempts=4)
+
+    def _get_conf_on_all(self, type_, param):
+        all_svc = [x["addr"] for x in self.conf["services"][type_]]
+        result = {}
+        for svc in all_svc:
+            res = self.admin.service_get_live_config(svc, request_attempts=4)
+            val_param = res.get(param, None)
+            result[param] = val_param
+        return result
 
     def test_versioning_enabled(self):
         props = self.api.container_get_properties(self.account, self.container)
@@ -898,3 +912,142 @@ class TestContentVersioning(BaseTestCase):
                 for obj in objects
             ],
         )
+
+    def test_object_limit_versions_ns_limit(self):
+        max_versions = 7
+        reqid = request_id("test-obj-max-v-")
+        default = self._get_conf_on_all("meta2", "meta2.max_versions_per_object")
+        self._apply_conf_on_all(
+            "meta2",
+            conf={
+                "meta2.max_versions_per_object": max_versions,
+            },
+        )
+        # Enable versioning on the container
+        self.storage.container_set_properties(
+            self.account,
+            self.container,
+            system={M2_PROP_VERSIONING_POLICY: "-1"},
+            reqid=reqid + "-prep",
+        )
+
+        object_names = ["obj1", "obj2"]
+        for obj in object_names:
+            for i in range(max_versions):
+                self.storage.object_create_ext(
+                    self.account,
+                    self.container,
+                    obj_name=obj,
+                    data=b"",
+                    policy="SINGLE",
+                    reqid=reqid + "-prep",
+                )
+        object_names = ["obj2"]
+        try:
+            with self.assertRaises(Conflict):
+                for obj in object_names:
+                    self.storage.object_create_ext(
+                        self.account,
+                        self.container,
+                        obj_name=obj,
+                        data=b"",
+                        policy="SINGLE",
+                        reqid=reqid + "-prep",
+                    )
+        finally:
+            self._apply_conf_on_all(
+                "meta2",
+                conf=default,
+            )
+
+    def test_object_limit_versions_with_delete_marker(self):
+        max_versions = 10
+        max_versions_for_container = 5
+        reqid = request_id("test-obj-max-v-")
+        default = self._get_conf_on_all("meta2", "meta2.max_versions_per_object")
+        self._apply_conf_on_all(
+            "meta2",
+            conf={
+                "meta2.max_versions_per_object": max_versions,
+            },
+        )
+        # Enable versioning on the container
+        self.storage.container_set_properties(
+            self.account,
+            self.container,
+            system={M2_PROP_VERSIONING_POLICY: "-1", M2_PROP_NB_VERSIONS: "5"},
+            reqid=reqid + "-prep",
+        )
+        object_names = ["obj1", "obj2"]
+        for obj in object_names:
+            for i in range(max_versions_for_container):
+                self.storage.object_create_ext(
+                    self.account,
+                    self.container,
+                    obj_name=obj,
+                    data=b"",
+                    policy="SINGLE",
+                    reqid=reqid + "-prep",
+                )
+        object_names = ["obj2"]
+        try:
+            with self.assertRaises(Conflict):
+                for obj in object_names:
+                    self.storage.object_delete(
+                        self.account,
+                        self.container,
+                        obj,
+                        reqid=reqid + "-prep",
+                    )
+        finally:
+            self._apply_conf_on_all(
+                "meta2",
+                conf=default,
+            )
+
+    def test_object_limit_versions_container_limit(self):
+        max_versions = 10
+        max_versions_for_container = 5
+        reqid = request_id("test-obj-max-v-")
+        default = self._get_conf_on_all("meta2", "meta2.max_versions_per_object")
+        self._apply_conf_on_all(
+            "meta2",
+            conf={
+                "meta2.max_versions_per_object": max_versions,
+            },
+        )
+        # Enable versioning on the container
+        self.storage.container_set_properties(
+            self.account,
+            self.container,
+            system={M2_PROP_VERSIONING_POLICY: "-1", M2_PROP_NB_VERSIONS: "5"},
+            reqid=reqid + "-prep",
+        )
+        object_names = ["obj1", "obj2"]
+        for obj in object_names:
+            for i in range(max_versions_for_container):
+                self.storage.object_create_ext(
+                    self.account,
+                    self.container,
+                    obj_name=obj,
+                    data=b"",
+                    policy="SINGLE",
+                    reqid=reqid + "-prep",
+                )
+        object_names = ["obj2"]
+        try:
+            with self.assertRaises(Conflict):
+                for obj in object_names:
+                    self.storage.object_create_ext(
+                        self.account,
+                        self.container,
+                        obj_name=obj,
+                        data=b"",
+                        policy="SINGLE",
+                        reqid=reqid + "-prep",
+                    )
+        finally:
+            self._apply_conf_on_all(
+                "meta2",
+                conf=default,
+            )
