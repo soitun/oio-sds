@@ -38,6 +38,7 @@ from oio.common.constants import (
     M2_PROP_FLUSHING_TIMESTAMP,
     M2_PROP_LIFECYCLE_CUSTOM_BUDGET,
     M2_PROP_LIFECYCLE_TIME_BYPASS,
+    M2_PROP_NB_VERSIONS,
     M2_PROP_OBJECTS,
     M2_PROP_SHARDING_LOWER,
     M2_PROP_SHARDING_MASTER,
@@ -488,6 +489,16 @@ class SetContainer(SetPropertyCommandMixin, ContainerCommandMixin, Command):
             type=int,
             help="Override lifecycle per bucket budget",
         )
+        parser.add_argument(
+            "--meta2-max-versions-per-object",
+            type=int,
+            help=(
+                "Set the maximum number of versions to keep per object"
+                "(only if versioning is enabled)."
+                "-1 stands for unlimited versions."
+            ),
+        )
+
         return parser
 
     def take_action(self, parsed_args):
@@ -505,7 +516,8 @@ class SetContainer(SetPropertyCommandMixin, ContainerCommandMixin, Command):
             system[M2_PROP_LIFECYCLE_CUSTOM_BUDGET] = str(
                 parsed_args.lifecycle_custom_budget
             )
-
+        if parsed_args.meta2_max_versions_per_object is not None:
+            system[M2_PROP_NB_VERSIONS] = str(parsed_args.meta2_max_versions_per_object)
         if parsed_args.bucket_name:
             system[M2_PROP_BUCKET_NAME] = parsed_args.bucket_name
         if parsed_args.storage_policy is not None:
@@ -1053,6 +1065,9 @@ class ShowContainer(ContainerCommandMixin, ShowOne):
         if lifecycle_custom_budget != -1:
             info["lifecycle.custom_budget"] = lifecycle_custom_budget
 
+        max_versions_per_object = int_value(sys.get(M2_PROP_NB_VERSIONS), -1)
+        if max_versions_per_object != -1:
+            info["max_versions_per_object"] = max_versions_per_object
         for k in ("stats.page_count", "stats.freelist_count", "stats.page_size"):
             info[k] = int_value(sys.get(k), 0)
         db_size = info["stats.page_count"] * info["stats.page_size"]
@@ -1333,6 +1348,11 @@ class UnsetContainer(ContainerCommandMixin, Command):
             action="store_true",
             help="Reset the lifecycle per bucket budget to the namespace default",
         )
+        parser.add_argument(
+            "--meta2-max-versions-per-object",
+            action="store_true",
+            help="Reset the max versions per object to the namespace default",
+        )
         return parser
 
     def take_action(self, parsed_args):
@@ -1351,6 +1371,8 @@ class UnsetContainer(ContainerCommandMixin, Command):
             system[M2_PROP_DEL_EXC_VERSIONS] = ""
         if parsed_args.lifecycle_custom_budget:
             system[M2_PROP_LIFECYCLE_CUSTOM_BUDGET] = ""
+        if parsed_args.meta2_max_versions_per_object:
+            system[M2_PROP_NB_VERSIONS] = ""
         reqid = self.app.request_id(prefix="CLI-container-unset-")
 
         if properties or not system:
