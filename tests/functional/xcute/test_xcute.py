@@ -18,12 +18,14 @@
 # pylint: disable=no-member
 
 import time
+from typing import Any
 from urllib.parse import urlparse
 
 import pytest
 
 from oio.common.exceptions import Forbidden
 from oio.xcute.client import XcuteClient
+from oio.xcute.common.job import XcuteJobStatus
 from tests.utils import BaseTestCase
 
 
@@ -293,3 +295,313 @@ class TestXcuteJobs(XcuteTest):
         job_show = self._wait_for_job_status(job["job"]["id"], "FINISHED")
         self.assertEqual(job_show["results"]["counter"], nb_task)
         self.assertEqual(job_show["errors"]["total"], 0)
+
+    def test_list_jobs_with_exact_lock(self) -> None:
+        """Listing with an exact lock value should return only matching jobs."""
+        locks: list[str] = ["rawx/node-0", "rawx/node-1", "rdir/node-0"]
+        for lock in locks:
+            self.xcute_client.job_create(
+                "tester",
+                job_config={"params": {"lock": lock, "end": 0}},
+            )
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_lock="rawx/node-0")
+        self.assertEqual(1, len(data["jobs"]))
+        self.assertEqual("rawx/node-0", data["jobs"][0]["job"]["lock"])
+
+    def test_list_jobs_with_wildcard_lock(self) -> None:
+        """Listing with a wildcard lock pattern should match multiple jobs."""
+        rawx_locks: list[str] = ["rawx/node-0", "rawx/node-1"]
+        rdir_lock: str = "rdir/node-0"
+        for lock in rawx_locks:
+            self.xcute_client.job_create(
+                "tester",
+                job_config={"params": {"lock": lock, "end": 0}},
+            )
+        self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"lock": rdir_lock, "end": 0}},
+        )
+
+        # Wildcard prefix: only rawx/* jobs
+        data: dict[str, Any] = self.xcute_client.job_list(job_lock="rawx/*")
+        listed_locks: set[str] = {j["job"]["lock"] for j in data["jobs"]}
+        self.assertEqual(set(rawx_locks), listed_locks)
+
+        # Wildcard all: all 3 jobs
+        data_all: dict[str, Any] = self.xcute_client.job_list(job_lock="*/node-0")
+        all_locks: set[str] = {j["job"]["lock"] for j in data_all["jobs"]}
+        self.assertEqual({"rawx/node-0", "rdir/node-0"}, all_locks)
+
+
+class TestXcuteJobListFilters(XcuteTest):
+    """Functional tests for XcuteClient.job_list filter parameters.
+
+    Covers: job_status (single and multiple), age, prefix, and combinations.
+    """
+
+    def _create_finished_job(self, lock: str) -> dict[str, Any]:
+        """Create a zero-task tester job and wait for FINISHED."""
+        job: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"lock": lock, "end": 0}},
+        )
+        self._wait_for_job_status(job["job"]["id"], "FINISHED")
+        return job
+
+    def _create_running_job(self, lock: str) -> dict[str, Any]:
+        """Create a long-running tester job and wait for it to reach RUNNING."""
+        job: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"lock": lock, "end": 256}},
+        )
+        self._wait_for_job_status(job["job"]["id"], "RUNNING")
+        return job
+
+    # ------------------------------------------------------------------
+    # Status filter
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_status_finished_returns_finished_jobs(self) -> None:
+        """job_list(job_status=FINISHED) returns only FINISHED jobs."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/status-finished")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=XcuteJobStatus.FINISHED
+        )
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job["job"]["id"], ids)
+        for j in data["jobs"]:
+            self.assertEqual(XcuteJobStatus.FINISHED, j["job"]["status"])
+
+    def test_list_jobs_status_excludes_non_matching(self) -> None:
+        """job_list(job_status=FAILED) does not return FINISHED jobs."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/status-exclude")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=XcuteJobStatus.FAILED
+        )
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertNotIn(job["job"]["id"], ids)
+
+    def test_list_jobs_multi_status_returns_all_matching(self) -> None:
+        """job_list with a list of statuses returns jobs matching any of them."""
+        job1: dict[str, Any] = self._create_finished_job(lock="test/multi-status")
+        job2: dict[str, Any] = self._create_running_job(lock="test/multi-status")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=[XcuteJobStatus.FINISHED, XcuteJobStatus.RUNNING]
+        )
+
+        self.assertEqual(2, len(data["jobs"]))
+        job1_result = data["jobs"][1]
+        job2_result = data["jobs"][0]
+        self.assertEqual(job1["job"]["id"], job1_result["job"]["id"])
+        self.assertEqual(XcuteJobStatus.FINISHED, job1_result["job"]["status"])
+        self.assertEqual(job2["job"]["id"], job2_result["job"]["id"])
+        self.assertEqual(XcuteJobStatus.RUNNING, job2_result["job"]["status"])
+
+        self._wait_for_job_status(job2["job"]["id"], "FINISHED")
+
+    def test_list_jobs_multi_status_returns_partial_matching(self) -> None:
+        """job_list with a list of statuses returns jobs matching only FINISHED."""
+        job1: dict[str, Any] = self._create_finished_job(lock="test/multi-status")
+        job2: dict[str, Any] = self._create_running_job(lock="test/multi-status")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=[XcuteJobStatus.FINISHED, XcuteJobStatus.FAILED]
+        )
+
+        self.assertEqual(1, len(data["jobs"]))
+        job1_result = data["jobs"][0]
+        self.assertEqual(job1["job"]["id"], job1_result["job"]["id"])
+        self.assertEqual(XcuteJobStatus.FINISHED, job1_result["job"]["status"])
+
+        self._wait_for_job_status(job2["job"]["id"], "FINISHED")
+
+    def test_list_jobs_no_status_returns_all_jobs(self) -> None:
+        """job_list without job_status includes jobs regardless of status."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/no-status")
+
+        data: dict[str, Any] = self.xcute_client.job_list()
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job["job"]["id"], ids)
+
+    # ------------------------------------------------------------------
+    # Age filter
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_age_zero_includes_recent_jobs(self) -> None:
+        """age=0 matches any job regardless of how recent it is."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/age-zero")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_age=0)
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job["job"]["id"], ids)
+
+    def test_list_jobs_large_age_excludes_recent_jobs(self) -> None:
+        """age=365*24*3600 excludes jobs created just now."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/age-large")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_age=365 * 24 * 3600)
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertNotIn(job["job"]["id"], ids)
+
+    # ------------------------------------------------------------------
+    # Type filter
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_type_returns_only_matching_jobs(self) -> None:
+        """job_list(job_type=...) returns only jobs of that type."""
+        job_tester: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"lock": "test/type-tester", "end": 0}},
+            put_on_hold_if_locked=True,
+        )
+        self._wait_for_job_status(job_tester["job"]["id"], "FINISHED")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_type="tester")
+
+        self.assertGreater(len(data["jobs"]), 0)
+        for j in data["jobs"]:
+            self.assertEqual("tester", j["job"]["type"])
+
+    def test_list_jobs_type_excludes_non_matching(self) -> None:
+        """job_list(job_type=rawx-decommission) excludes tester jobs."""
+        job: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"lock": "test/type-exclude", "end": 0}},
+            put_on_hold_if_locked=True,
+        )
+        self._wait_for_job_status(job["job"]["id"], "FINISHED")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_type="rawx-decommission")
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertNotIn(job["job"]["id"], ids)
+
+    # ------------------------------------------------------------------
+    # Prefix filter
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_prefix_returns_only_matching_jobs(self) -> None:
+        """job_list(prefix=...) returns only jobs whose ID starts with that prefix."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/prefix")
+        job_id: str = job["job"]["id"]
+        # Job IDs are YYYYMMDDHHMMSS...  Use the first 8 chars (date) as prefix.
+        prefix: str = job_id[:8]
+
+        data: dict[str, Any] = self.xcute_client.job_list(prefix=prefix)
+
+        for j in data["jobs"]:
+            self.assertTrue(
+                j["job"]["id"].startswith(prefix),
+                f"Job {j['job']['id']} does not start with prefix {prefix!r}",
+            )
+
+    # ------------------------------------------------------------------
+    # Lock filter
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_exact_lock_returns_only_matching(self) -> None:
+        """job_list(job_lock=...) returns only jobs with that exact lock."""
+        job_match: dict[str, Any] = self._create_finished_job(lock="rawx/node-0")
+        job_other: dict[str, Any] = self._create_finished_job(lock="rawx/node-1")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_lock="rawx/node-0")
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job_match["job"]["id"], ids)
+        self.assertNotIn(job_other["job"]["id"], ids)
+
+    def test_list_jobs_wildcard_lock_matches_pattern(self) -> None:
+        """job_list(job_lock='rawx/*') matches all rawx jobs but not rdir ones."""
+        job_rawx0: dict[str, Any] = self._create_finished_job(lock="rawx/lock-wc-0")
+        job_rawx1: dict[str, Any] = self._create_finished_job(lock="rawx/lock-wc-1")
+        job_rdir: dict[str, Any] = self._create_finished_job(lock="rdir/lock-wc-0")
+
+        data: dict[str, Any] = self.xcute_client.job_list(job_lock="rawx/*")
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job_rawx0["job"]["id"], ids)
+        self.assertIn(job_rawx1["job"]["id"], ids)
+        self.assertNotIn(job_rdir["job"]["id"], ids)
+
+    def test_list_jobs_no_lock_returns_all(self) -> None:
+        """job_list without job_lock includes jobs regardless of their lock."""
+        job_rawx: dict[str, Any] = self._create_finished_job(lock="rawx/lock-none")
+        job_rdir: dict[str, Any] = self._create_finished_job(lock="rdir/lock-none")
+
+        data: dict[str, Any] = self.xcute_client.job_list()
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job_rawx["job"]["id"], ids)
+        self.assertIn(job_rdir["job"]["id"], ids)
+
+    # ------------------------------------------------------------------
+    # Combined filters
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_status_and_lock(self) -> None:
+        """Combining job_status and job_lock narrows the result set."""
+        job_rawx: dict[str, Any] = self._create_finished_job(lock="rawx/filter-combo")
+        job_rdir: dict[str, Any] = self._create_finished_job(lock="rdir/filter-combo")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=XcuteJobStatus.FINISHED,
+            job_lock="rawx/*",
+        )
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job_rawx["job"]["id"], ids)
+        self.assertNotIn(job_rdir["job"]["id"], ids)
+
+    def test_list_jobs_status_and_age(self) -> None:
+        """Combining job_status and age=0 returns only terminal jobs."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/status-age")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=XcuteJobStatus.FINISHED,
+            job_age=0,
+        )
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job["job"]["id"], ids)
+        for j in data["jobs"]:
+            self.assertEqual(XcuteJobStatus.FINISHED, j["job"]["status"])
+
+    def test_list_jobs_status_age_and_lock(self) -> None:
+        """All three filters combined match only the intended job."""
+        job_match: dict[str, Any] = self._create_finished_job(lock="rawx/triple-filter")
+        job_other: dict[str, Any] = self._create_finished_job(lock="rdir/triple-filter")
+
+        data: dict[str, Any] = self.xcute_client.job_list(
+            job_status=XcuteJobStatus.FINISHED,
+            job_lock="rawx/*",
+            job_age=0,
+        )
+
+        ids: list[str] = [j["job"]["id"] for j in data["jobs"]]
+        self.assertIn(job_match["job"]["id"], ids)
+        self.assertNotIn(job_other["job"]["id"], ids)
+
+    # ------------------------------------------------------------------
+    # force_master
+    # ------------------------------------------------------------------
+
+    def test_list_jobs_force_master_returns_same_result(self) -> None:
+        """force_master=True should return the same jobs as without it."""
+        job: dict[str, Any] = self._create_finished_job(lock="test/force-master")
+
+        data_default: dict[str, Any] = self.xcute_client.job_list()
+        data_master: dict[str, Any] = self.xcute_client.job_list(force_master=True)
+
+        ids_default: set[str] = {j["job"]["id"] for j in data_default["jobs"]}
+        ids_master: set[str] = {j["job"]["id"] for j in data_master["jobs"]}
+        self.assertIn(job["job"]["id"], ids_master)
+        self.assertEqual(ids_default, ids_master)

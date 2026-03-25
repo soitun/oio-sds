@@ -241,7 +241,14 @@ class HttpApi(object):
         if params:
             out_param = []
             for key, value in params.items():
-                if value is not None:
+                if value is None:
+                    continue
+                if isinstance(value, list):
+                    for v in value:
+                        if isinstance(v, str):
+                            v = v.encode("utf-8")
+                        out_param.append((key, v))
+                else:
                     if isinstance(value, str):
                         value = value.encode("utf-8")
                     out_param.append((key, value))

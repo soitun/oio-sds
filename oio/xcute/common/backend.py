@@ -16,9 +16,11 @@
 
 import random
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatchcase
 from functools import wraps
+from typing import Any
 
 import redis
 
@@ -57,8 +59,8 @@ def handle_redis_exceptions(func):
 
 
 class XcuteBackend(RedisConnection):
-    DEFAULT_LIMIT = 1000
-    DEFAULT_STUCK_DELAY = 172800  # 48 hours in seconds
+    DEFAULT_LIMIT: int = 1000
+    DEFAULT_STUCK_DELAY: int = 2 * 24 * 3600  # 2 days in seconds
 
     def generate_lua_scripts(self):
         self.lua_errors = {
@@ -651,22 +653,46 @@ class XcuteBackend(RedisConnection):
 
     def list_jobs(
         self,
-        prefix=None,
-        marker=None,
-        limit=None,
-        job_status=None,
-        job_type=None,
-        job_lock=None,
-        force_master=False,
-    ):
+        prefix: str | None = None,
+        marker: str | None = None,
+        limit: int | None = None,
+        job_status: str | list[str] | None = None,
+        job_type: str | None = None,
+        job_lock: str | None = None,
+        job_age: int | None = None,
+        force_master: bool = False,
+    ) -> dict[str, Any]:
         limit = limit or self.DEFAULT_LIMIT
+        now_utc = datetime.now(tz=timezone.utc) if job_age is not None else None
+        now: float = now_utc.timestamp() if now_utc is not None else 0.0
+        if job_age is not None and job_age > 0 and marker is None:
+            # Job IDs are prefixed with %Y%m%d%H%M%S%f (UTC). Compute the cutoff
+            # date so the first page starts directly at old-enough jobs, skipping
+            # all recent ones without scanning them.
+            marker = (now_utc - timedelta(seconds=job_age)).strftime("%Y%m%d%H%M%S%f")
 
+        job_statuses: set[bytes] | None = None
         if job_status:
-            job_status = job_status.upper().strip().encode("utf-8")
+            if isinstance(job_status, str):
+                job_statuses = {job_status.upper().strip().encode("utf-8")}
+            else:
+                job_statuses = {s.upper().strip().encode("utf-8") for s in job_status}
         if job_type:
             job_type = job_type.lower().strip().encode("utf-8")
+        lock_filter: Callable[[bytes | None], bool] | None
         if job_lock:
-            job_lock = job_lock.strip().encode("utf-8")
+            job_lock = job_lock.strip()
+            if any(c in job_lock for c in ("*", "?", "[")):
+
+                def lock_filter(raw, _pat=job_lock):
+                    return fnmatchcase((raw or b"").decode("utf-8"), _pat)
+            else:
+                _lock_bytes: bytes = job_lock.encode("utf-8")
+
+                def lock_filter(raw, _b=_lock_bytes):
+                    return raw == _b
+        else:
+            lock_filter = None
 
         jobs = {"jobs": []}
         next_marker = None
@@ -700,12 +726,14 @@ class XcuteBackend(RedisConnection):
                     continue
 
                 try:
-                    if job_status and job_info[b"job.status"] != job_status:
+                    if job_statuses and (job_info[b"job.status"] not in job_statuses):
                         continue
                     if job_type and job_info[b"job.type"] != job_type:
                         continue
-                    if job_lock and not fnmatchcase(
-                        job_info.get(b"job.lock") or b"", job_lock
+                    if lock_filter and not lock_filter(job_info.get(b"job.lock")):
+                        continue
+                    if job_age is not None and (
+                        now - float(job_info[b"job.mtime"]) < job_age
                     ):
                         continue
                 except KeyError as err:

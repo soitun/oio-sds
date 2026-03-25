@@ -140,9 +140,10 @@ class XcuteServer(WerkzeugApp):
         limit = int_value(req.args.get("limit"), None)
         prefix = req.args.get("prefix")
         marker = req.args.get("marker")
-        job_status = req.args.get("status")
+        job_status: list[str] | None = req.args.getlist("status") or None
         job_type = req.args.get("type")
         job_lock = req.args.get("lock")
+        job_age: int | None = int_value(req.args.get("age"), None)
         force_master = boolean_value(req.args.get("force_master"))
 
         jobs = self.backend.list_jobs(
@@ -152,6 +153,7 @@ class XcuteServer(WerkzeugApp):
             job_status=job_status,
             job_type=job_type,
             job_lock=job_lock,
+            job_age=job_age,
             force_master=force_master,
         )
         return Response(json.dumps(jobs), mimetype=HTTP_CONTENT_TYPE_JSON)

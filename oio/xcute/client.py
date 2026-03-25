@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library.
 
+from typing import Any
+
 from oio.common.service_client import ServiceClient
 
 
@@ -43,14 +45,15 @@ class XcuteClient(ServiceClient):
 
     def job_list(
         self,
-        limit=None,
-        prefix=None,
-        marker=None,
-        job_status=None,
-        job_type=None,
-        job_lock=None,
-        force_master=False,
-    ):
+        limit: int | None = None,
+        prefix: str | None = None,
+        marker: str | None = None,
+        job_status: str | list[str] | None = None,
+        job_type: str | None = None,
+        job_lock: str | None = None,
+        job_age: int | None = None,
+        force_master: bool = False,
+    ) -> dict[str, Any]:
         _, data = self.xcute_request(
             None,
             "GET",
@@ -62,6 +65,7 @@ class XcuteClient(ServiceClient):
                 "status": job_status,
                 "type": job_type,
                 "lock": job_lock,
+                "age": job_age,
                 "force_master": force_master or None,
             },
         )

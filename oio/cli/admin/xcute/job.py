@@ -14,16 +14,18 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library.
 
-from datetime import datetime
+import argparse
+from typing import Any
 
 from oio.cli import Lister, ShowOne, flat_dict_from_dict
-from oio.cli.admin.xcute import CustomerCommand, XcuteCommand
+from oio.cli.admin.xcute import CustomerCommand, JobListingCommand, XcuteCommand
 from oio.cli.common.utils import KeyValueAction
+from oio.common.easy_value import convert_timestamp
 from oio.common.utils import depaginate
 from oio.xcute.common.job import XcuteJobStatus
 
 
-class JobList(XcuteCommand, Lister):
+class JobList(JobListingCommand, Lister):
     """
     List jobs sorted by descending creation date.
     """
@@ -34,36 +36,12 @@ class JobList(XcuteCommand, Lister):
         from oio.cli.common.utils import ValueFormatStoreTrueAction
 
         parser = super().get_parser(prog_name)
-        parser.add_argument(
-            "--date",
-            help="Filter jobs with the specified job date (%%Y-%%m-%%dT%%H:%%M:%%S)",
-        )
+        self._add_job_listing_arguments(parser)
         parser.add_argument(
             "--results",
             action="store_true",
             help="Display an extra column with jobs results and errors",
         )
-        parser.add_argument(
-            "--status",
-            choices=XcuteJobStatus.ALL,
-            help="Filter jobs with the specified job status",
-        )
-        parser.add_argument(
-            "--type",
-            choices=self.job_types.keys(),
-            help="Filter jobs with the specified job type",
-        )
-        parser.add_argument(
-            "--lock", help="Filter jobs with the specified job lock (wildcards allowed)"
-        )
-        parser.add_argument(
-            "--limit",
-            metavar="<limit>",
-            type=int,
-            default=1000,
-            help="Limit the number of results (1000 by default)",
-        )
-        parser.add_argument("--marker", metavar="<marker>", help="Marker for paging")
         parser.add_argument(
             "--no-paging",
             dest="no_paging",
@@ -80,42 +58,6 @@ class JobList(XcuteCommand, Lister):
         )
         return parser
 
-    def _build_list_prefix(self, parsed_args):
-        prefix = None
-        if parsed_args.date:
-            datetime_input_format = ""
-            datetime_output_format = ""
-            datetime_info_split = parsed_args.date.split("T", 1)
-            date_info_split = datetime_info_split[0].split("-", 2)
-            if len(date_info_split) > 0:
-                datetime_input_format += "%Y"
-                datetime_output_format += "%Y"
-            if len(date_info_split) > 1:
-                datetime_input_format += "-%m"
-                datetime_output_format += "%m"
-            if len(date_info_split) > 2:
-                datetime_input_format += "-%d"
-                datetime_output_format += "%d"
-            if len(datetime_info_split) > 1:
-                if len(date_info_split) != 3:
-                    raise ValueError("Wrong date format")
-                time_info_split = datetime_info_split[1].split(":", 2)
-                if len(time_info_split) > 0:
-                    datetime_input_format += "T%H"
-                    datetime_output_format += "%H"
-                if len(time_info_split) > 1:
-                    datetime_input_format += ":%M"
-                    datetime_output_format += "%M"
-                if len(time_info_split) > 2:
-                    datetime_input_format += ":%S"
-                    datetime_output_format += "%S"
-            try:
-                job_date = datetime.strptime(parsed_args.date, datetime_input_format)
-            except ValueError:
-                raise ValueError("Wrong date format")
-            prefix = job_date.strftime(datetime_output_format)
-        return prefix
-
     def _take_action(self, parsed_args):
         prefix = self._build_list_prefix(parsed_args)
 
@@ -128,6 +70,7 @@ class JobList(XcuteCommand, Lister):
                 job_status=parsed_args.status,
                 job_type=parsed_args.type,
                 job_lock=parsed_args.lock,
+                job_age=parsed_args.age,
                 force_master=parsed_args.force_master,
                 listing_key=lambda x: x["jobs"],
                 marker_key=lambda x: x.get("next_marker"),
@@ -141,6 +84,7 @@ class JobList(XcuteCommand, Lister):
                 job_status=parsed_args.status,
                 job_type=parsed_args.type,
                 job_lock=parsed_args.lock,
+                job_age=parsed_args.age,
                 force_master=parsed_args.force_master,
             )
             jobs = jobs_list["jobs"]
@@ -459,3 +403,80 @@ class JobDelete(XcuteCommand, Lister):
 
 class CustomerJobDelete(CustomerCommand, JobDelete):
     pass
+
+
+class JobClean(JobListingCommand, ShowOne):
+    """
+    Delete old finished (FINISHED or FAILED) jobs, paginating automatically.
+    """
+
+    DEFAULT_JOB_AGE: int = 10 * 365 * 24 * 3600  # ~10 years
+    STATUS_CHOICES = [XcuteJobStatus.FINISHED, XcuteJobStatus.FAILED]
+
+    def get_parser(self, prog_name: str) -> argparse.ArgumentParser:
+        parser = super().get_parser(prog_name)
+        self._add_job_listing_arguments(parser)
+        return parser
+
+    def take_action(self, parsed_args: argparse.Namespace) -> Any:
+        self.logger.debug("take_action(%s)", parsed_args)
+
+        deleted: int = 0
+        errors: int = 0
+        eligible_statuses: list[str] = parsed_args.status or list(self.STATUS_CHOICES)
+        prefix: str | None = self._build_list_prefix(parsed_args)
+
+        jobs = depaginate(
+            self.xcute.job_list,
+            job_age=parsed_args.age,
+            job_type=parsed_args.type,
+            job_lock=parsed_args.lock,
+            job_status=eligible_statuses,
+            prefix=prefix,
+            marker=parsed_args.marker,
+            limit=parsed_args.limit,
+            listing_key=lambda x: x["jobs"],
+            marker_key=lambda x: x.get("next_marker"),
+            truncated_key=lambda x: x.get("truncated"),
+        )
+
+        for job_info in jobs:
+            job_id: str = job_info["job"]["id"]
+            job_type: str = job_info["job"]["type"]
+            job_status: str = job_info["job"]["status"]
+            job_mtime: str = convert_timestamp(job_info["job"]["mtime"])
+            try:
+                self.xcute.job_delete(job_id)
+                deleted += 1
+                self.logger.warning(
+                    "Deleted job %s (type=%s, status=%s, mtime=%s)",
+                    job_id,
+                    job_type,
+                    job_status,
+                    job_mtime,
+                )
+            except Exception as exc:
+                errors += 1
+                self.logger.error(
+                    "Failed to delete job %s (type=%s, status=%s, mtime=%s): %s",
+                    job_id,
+                    job_type,
+                    job_status,
+                    job_mtime,
+                    exc,
+                )
+
+        if errors:
+            self.success = False
+        return zip(
+            *sorted(
+                {
+                    "deleted": deleted,
+                    "errors": errors,
+                }.items()
+            )
+        )
+
+
+class CustomerJobClean(CustomerCommand, JobClean):
+    DEFAULT_JOB_AGE: int = 6 * 30 * 24 * 3600  # ~6 months
