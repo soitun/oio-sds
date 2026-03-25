@@ -1,5 +1,5 @@
 # Copyright (C) 2019 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2021-2025 OVH SAS
+# Copyright (C) 2021-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -597,8 +597,10 @@ class XcuteBackend(RedisConnection):
             if k.startswith("stuck_delay_job_")
         }
 
-    def status(self):
-        job_count = self.conn.zcard(self.key_job_ids)
+    def status(self, force_master=False):
+        job_count = self.get_slave_conn(force_master=force_master).zcard(
+            self.key_job_ids
+        )
         status = {"job_count": job_count}
         return status
 
@@ -610,6 +612,7 @@ class XcuteBackend(RedisConnection):
         job_status=None,
         job_type=None,
         job_lock=None,
+        force_master=False,
     ):
         jobs = depaginate(
             self.list_jobs,
@@ -619,6 +622,7 @@ class XcuteBackend(RedisConnection):
             job_status=job_status,
             job_type=job_type,
             job_lock=job_lock,
+            force_master=force_master,
             listing_key=lambda x: x["jobs"],
             marker_key=lambda x: x["next_marker"],
             truncated_key=lambda x: x["truncated"],
@@ -653,6 +657,7 @@ class XcuteBackend(RedisConnection):
         job_status=None,
         job_type=None,
         job_lock=None,
+        force_master=False,
     ):
         limit = limit or self.DEFAULT_LIMIT
 
@@ -679,11 +684,12 @@ class XcuteBackend(RedisConnection):
             if marker and (not prefix or marker > prefix):
                 range_max = "(" + marker
 
-            job_ids = self.conn.zrevrangebylex(
+            client = self.get_slave_conn(force_master=force_master)
+            job_ids = client.zrevrangebylex(
                 self.key_job_ids, range_max, range_min, 0, limit_
             )
 
-            pipeline = self.conn.pipeline()
+            pipeline = client.pipeline()
             for job_id in job_ids:
                 self._get_job_info(job_id, client=pipeline)
             job_infos = pipeline.execute()
@@ -748,11 +754,12 @@ class XcuteBackend(RedisConnection):
         )
         return job_id
 
-    def list_orchestrator_jobs(self, orchestrator_id):
+    def list_orchestrator_jobs(self, orchestrator_id, force_master=False):
+        client = self.get_slave_conn(force_master=force_master)
         orchestrator_jobs_key = self.key_orchestrator_jobs % orchestrator_id
-        job_ids = self.conn.smembers(orchestrator_jobs_key)
+        job_ids = client.smembers(orchestrator_jobs_key)
 
-        pipeline = self.conn.pipeline()
+        pipeline = client.pipeline()
         for job_id in job_ids:
             self._get_job_info(job_id, client=pipeline)
         job_infos = pipeline.execute()
@@ -863,8 +870,10 @@ class XcuteBackend(RedisConnection):
         self.script_delete(keys=[job_id])
 
     @handle_redis_exceptions
-    def get_job_info(self, job_id):
-        job_info = self._get_job_info(job_id, client=self.conn)
+    def get_job_info(self, job_id, force_master=False):
+        job_info = self._get_job_info(
+            job_id, client=self.get_slave_conn(force_master=force_master)
+        )
         if not job_info:
             raise redis.exceptions.ResponseError("no_job")
 
@@ -875,14 +884,16 @@ class XcuteBackend(RedisConnection):
         return client.hgetall(self.key_job_info % job_id)
 
     @handle_redis_exceptions
-    def list_locks(self):
-        locks = self.conn.hgetall(self.key_locks)
+    def list_locks(self, force_master=False):
+        locks = self.get_slave_conn(force_master=force_master).hgetall(self.key_locks)
         locks = debinarize(locks)
         return [dict(lock=lock[0], job_id=lock[1]) for lock in sorted(locks.items())]
 
     @handle_redis_exceptions
-    def get_lock_info(self, lock):
-        job_id = self.conn.hget(self.key_locks, lock)
+    def get_lock_info(self, lock, force_master=False):
+        job_id = self.get_slave_conn(force_master=force_master).hget(
+            self.key_locks, lock
+        )
         job_id = debinarize(job_id)
         return dict(lock=lock, job_id=job_id)
 

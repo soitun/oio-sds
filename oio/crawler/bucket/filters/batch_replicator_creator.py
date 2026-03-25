@@ -68,7 +68,9 @@ class BatchReplicatorCreator(BucketFilter):
             self.skipped_lister_not_finished += 1
             return None, self.app
         try:
-            lister_job = self.app_env["api"].xcute_customer.job_show(lister_job_id)
+            lister_job = self.app_env["api"].xcute_customer.job_show(
+                lister_job_id, force_master=True
+            )
         except NotFound as err:
             self.logger.error("Lister job %s does not exist", lister_job_id)
             # Consider error instead of skip_vanished because xcute jobs are not

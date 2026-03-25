@@ -166,7 +166,9 @@ class XcuteOrchestrator(KafkaOffsetHelperMixin):
         # restart running jobs
         self.logger.debug("Look for unfinished jobs")
         orchestrator_jobs, exc = self.handle_backend_errors(
-            self.backend.list_orchestrator_jobs, self.orchestrator_id
+            self.backend.list_orchestrator_jobs,
+            self.orchestrator_id,
+            force_master=True,
         )
         if exc is not None:
             self.logger.warning(
@@ -307,7 +309,7 @@ class XcuteOrchestrator(KafkaOffsetHelperMixin):
                 return last_check
 
             job_info, exc = self.handle_backend_errors(
-                self.backend.get_job_info, job_id
+                self.backend.get_job_info, job_id, force_master=True
             )
             if exc is not None:
                 self.logger.warning(

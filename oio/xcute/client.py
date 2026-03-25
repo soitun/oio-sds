@@ -1,5 +1,5 @@
 # Copyright (C) 2019 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2021-2025 OVH SAS
+# Copyright (C) 2021-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -49,6 +49,7 @@ class XcuteClient(ServiceClient):
         job_status=None,
         job_type=None,
         job_lock=None,
+        force_master=False,
     ):
         _, data = self.xcute_request(
             None,
@@ -61,6 +62,7 @@ class XcuteClient(ServiceClient):
                 "status": job_status,
                 "type": job_type,
                 "lock": job_lock,
+                "force_master": force_master or None,
             },
         )
         return data
@@ -75,8 +77,13 @@ class XcuteClient(ServiceClient):
         )
         return data
 
-    def job_show(self, job_id):
-        _, data = self.xcute_request(job_id, "GET", "/job/show")
+    def job_show(self, job_id, force_master=False):
+        _, data = self.xcute_request(
+            job_id,
+            "GET",
+            "/job/show",
+            params={"force_master": force_master or None},
+        )
         return data
 
     def job_pause(self, job_id):
@@ -98,10 +105,20 @@ class XcuteClient(ServiceClient):
     def job_delete(self, job_id):
         self.xcute_request(job_id, "DELETE", "/job/delete")
 
-    def lock_list(self):
-        _, data = self.xcute_request(None, "GET", "/lock/list")
+    def lock_list(self, force_master=False):
+        _, data = self.xcute_request(
+            None,
+            "GET",
+            "/lock/list",
+            params={"force_master": force_master or None},
+        )
         return data
 
-    def lock_show(self, lock):
-        _, data = self.xcute_request(None, "GET", "/lock/show", params={"lock": lock})
+    def lock_show(self, lock, force_master=False):
+        _, data = self.xcute_request(
+            None,
+            "GET",
+            "/lock/show",
+            params={"lock": lock, "force_master": force_master or None},
+        )
         return data

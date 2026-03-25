@@ -1,4 +1,4 @@
-# Copyright (C) 2025 OVH SAS
+# Copyright (C) 2025-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -140,7 +140,9 @@ class BatchReplicatorTracker(BucketFilter):
             return self.app(env, cb)
 
         try:
-            job = self.app_env["api"].xcute_customer.job_show(repli_job_id)
+            job = self.app_env["api"].xcute_customer.job_show(
+                repli_job_id, force_master=True
+            )
         except NotFound as err:
             self.logger.error("Repli job %s does not exist", repli_job_id)
             # Consider error instead of skip_vanished because xcute jobs are not

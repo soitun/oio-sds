@@ -1,5 +1,5 @@
 # Copyright (C) 2019-2020 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2021-2025 OVH SAS
+# Copyright (C) 2021-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -98,7 +98,8 @@ class XcuteServer(WerkzeugApp):
 
     @handle_exceptions
     def on_status(self, req, **kwargs):
-        status = self.backend.status()
+        force_master = boolean_value(req.args.get("force_master"))
+        status = self.backend.status(force_master=force_master)
         return Response(json.dumps(status), mimetype=HTTP_CONTENT_TYPE_JSON)
 
     def _metrics_to_prometheus_format(self, metrics):
@@ -118,6 +119,7 @@ class XcuteServer(WerkzeugApp):
         job_status = req.args.get("status")
         job_type = req.args.get("type")
         job_lock = req.args.get("lock")
+        force_master = boolean_value(req.args.get("force_master"))
         metrics = self.backend.metrics(
             limit=limit,
             prefix=prefix,
@@ -125,6 +127,7 @@ class XcuteServer(WerkzeugApp):
             job_status=job_status,
             job_type=job_type,
             job_lock=job_lock,
+            force_master=force_master,
         )
         if req.args.get("format") != "prometheus":
             return Response(json.dumps(metrics), mimetype=HTTP_CONTENT_TYPE_JSON)
@@ -140,6 +143,7 @@ class XcuteServer(WerkzeugApp):
         job_status = req.args.get("status")
         job_type = req.args.get("type")
         job_lock = req.args.get("lock")
+        force_master = boolean_value(req.args.get("force_master"))
 
         jobs = self.backend.list_jobs(
             limit=limit,
@@ -148,6 +152,7 @@ class XcuteServer(WerkzeugApp):
             job_status=job_status,
             job_type=job_type,
             job_lock=job_lock,
+            force_master=force_master,
         )
         return Response(json.dumps(jobs), mimetype=HTTP_CONTENT_TYPE_JSON)
 
@@ -181,7 +186,8 @@ class XcuteServer(WerkzeugApp):
     @handle_exceptions
     def on_job_show(self, req, **kwargs):
         job_id = self._get_job_id(req)
-        job_info = self.backend.get_job_info(job_id)
+        force_master = boolean_value(req.args.get("force_master"))
+        job_info = self.backend.get_job_info(job_id, force_master=force_master)
         return Response(json.dumps(job_info), mimetype=HTTP_CONTENT_TYPE_JSON)
 
     @handle_exceptions
@@ -240,7 +246,8 @@ class XcuteServer(WerkzeugApp):
 
     @handle_exceptions
     def on_lock_list(self, req, **kwargs):
-        locks = self.backend.list_locks()
+        force_master = boolean_value(req.args.get("force_master"))
+        locks = self.backend.list_locks(force_master=force_master)
         return Response(json.dumps(locks), mimetype=HTTP_CONTENT_TYPE_JSON)
 
     @handle_exceptions
@@ -248,7 +255,8 @@ class XcuteServer(WerkzeugApp):
         lock = req.args.get("lock")
         if not lock:
             raise HTTPBadRequest("Missing lock")
-        lock_info = self.backend.get_lock_info(lock)
+        force_master = boolean_value(req.args.get("force_master"))
+        lock_info = self.backend.get_lock_info(lock, force_master=force_master)
         return Response(json.dumps(lock_info), mimetype=HTTP_CONTENT_TYPE_JSON)
 
 

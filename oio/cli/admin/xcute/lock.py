@@ -1,5 +1,5 @@
 # Copyright (C) 2019-2020 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2025 OVH SAS
+# Copyright (C) 2025-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -27,8 +27,19 @@ class LockList(XcuteCommand, Lister):
 
     columns = ("Lock", "Job ID")
 
+    def get_parser(self, prog_name):
+        parser = super().get_parser(prog_name)
+        parser.add_argument(
+            "--force-master",
+            dest="force_master",
+            default=False,
+            action="store_true",
+            help="Read from the Redis master instead of a slave",
+        )
+        return parser
+
     def _take_action(self, parsed_args):
-        locks = self.xcute.lock_list()
+        locks = self.xcute.lock_list(force_master=parsed_args.force_master)
         for lock in locks:
             yield itemgetter("lock", "job_id")(lock)
 
@@ -50,12 +61,21 @@ class LockShow(XcuteCommand, ShowOne):
     def get_parser(self, prog_name):
         parser = super(LockShow, self).get_parser(prog_name)
         parser.add_argument("lock", metavar="<lock>", help="Lock to show")
+        parser.add_argument(
+            "--force-master",
+            dest="force_master",
+            default=False,
+            action="store_true",
+            help="Read from the Redis master instead of a slave",
+        )
         return parser
 
     def take_action(self, parsed_args):
         self.logger.debug("take_action(%s)", parsed_args)
 
-        lock_info = self.xcute.lock_show(parsed_args.lock)
+        lock_info = self.xcute.lock_show(
+            parsed_args.lock, force_master=parsed_args.force_master
+        )
 
         return [("lock", "job_id"), itemgetter("lock", "job_id")(lock_info)]
 

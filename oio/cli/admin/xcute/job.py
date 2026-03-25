@@ -71,6 +71,13 @@ class JobList(XcuteCommand, Lister):
             help="List all elements without paging (and set output format to 'value')",
             action=ValueFormatStoreTrueAction,
         )
+        parser.add_argument(
+            "--force-master",
+            dest="force_master",
+            default=False,
+            action="store_true",
+            help="Read from the Redis master instead of a slave",
+        )
         return parser
 
     def _build_list_prefix(self, parsed_args):
@@ -121,6 +128,7 @@ class JobList(XcuteCommand, Lister):
                 job_status=parsed_args.status,
                 job_type=parsed_args.type,
                 job_lock=parsed_args.lock,
+                force_master=parsed_args.force_master,
                 listing_key=lambda x: x["jobs"],
                 marker_key=lambda x: x.get("next_marker"),
                 truncated_key=lambda x: x.get("truncated"),
@@ -133,6 +141,7 @@ class JobList(XcuteCommand, Lister):
                 job_status=parsed_args.status,
                 job_type=parsed_args.type,
                 job_lock=parsed_args.lock,
+                force_master=parsed_args.force_master,
             )
             jobs = jobs_list["jobs"]
 
@@ -191,12 +200,21 @@ class JobShow(XcuteCommand, ShowOne):
         parser.add_argument(
             "--raw", action="store_true", help="Display raw information"
         )
+        parser.add_argument(
+            "--force-master",
+            dest="force_master",
+            default=False,
+            action="store_true",
+            help="Read from the Redis master instead of a slave",
+        )
         return parser
 
     def take_action(self, parsed_args):
         self.logger.debug("take_action(%s)", parsed_args)
 
-        job_info = self.xcute.job_show(parsed_args.job_id)
+        job_info = self.xcute.job_show(
+            parsed_args.job_id, force_master=parsed_args.force_master
+        )
 
         if not parsed_args.raw:
             job_main_info = job_info["job"]
