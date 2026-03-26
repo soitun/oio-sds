@@ -109,6 +109,15 @@ class XcuteClient(ServiceClient):
     def job_delete(self, job_id):
         self.xcute_request(job_id, "DELETE", "/job/delete")
 
+    def job_tasks(self, job_id: str, force_master: bool = False) -> dict[str, Any]:
+        _, data = self.xcute_request(
+            job_id,
+            "GET",
+            "/job/tasks",
+            params={"force_master": force_master or None},
+        )
+        return data
+
     def lock_list(self, force_master=False):
         _, data = self.xcute_request(
             None,

@@ -480,3 +480,38 @@ class JobClean(JobListingCommand, ShowOne):
 
 class CustomerJobClean(CustomerCommand, JobClean):
     DEFAULT_JOB_AGE: int = 6 * 30 * 24 * 3600  # ~6 months
+
+
+class JobTasks(XcuteCommand, Lister):
+    """
+    List the tasks currently running for a job.
+    """
+
+    columns = ("Task ID",)
+
+    def get_parser(self, prog_name: str) -> argparse.ArgumentParser:
+        parser = super().get_parser(prog_name)
+        parser.add_argument(
+            "job_id", metavar="<job_id>", help="ID of the job to inspect"
+        )
+        parser.add_argument(
+            "--force-master",
+            dest="force_master",
+            default=False,
+            action="store_true",
+            help="Read from the Redis master instead of a slave",
+        )
+        return parser
+
+    def take_action(self, parsed_args: argparse.Namespace) -> Any:
+        self.logger.debug("take_action(%s)", parsed_args)
+
+        data: dict[str, Any] = self.xcute.job_tasks(
+            parsed_args.job_id,
+            force_master=parsed_args.force_master,
+        )
+        return self.columns, ((task_id,) for task_id in data["tasks"])
+
+
+class CustomerJobTasks(CustomerCommand, JobTasks):
+    pass

@@ -15,6 +15,7 @@
 # License along with this library.
 
 from functools import wraps
+from typing import Any
 
 from werkzeug.exceptions import (
     BadRequest as HTTPBadRequest,
@@ -32,7 +33,7 @@ from werkzeug.exceptions import (
     NotFound as HTTPNotFound,
 )
 from werkzeug.routing import Map, Rule, Submount
-from werkzeug.wrappers import Response
+from werkzeug.wrappers import Request, Response
 
 from oio.common.constants import HTTP_CONTENT_TYPE_JSON, HTTP_CONTENT_TYPE_TEXT
 from oio.common.easy_value import boolean_value, int_value
@@ -87,6 +88,7 @@ class XcuteServer(WerkzeugApp):
                         Rule("/job/update", endpoint="job_update", methods=["POST"]),
                         Rule("/job/abort", endpoint="job_abort", methods=["POST"]),
                         Rule("/job/delete", endpoint="job_delete", methods=["DELETE"]),
+                        Rule("/job/tasks", endpoint="job_tasks", methods=["GET"]),
                         Rule("/lock/list", endpoint="lock_list", methods=["GET"]),
                         Rule("/lock/show", endpoint="lock_show", methods=["GET"]),
                     ],
@@ -245,6 +247,15 @@ class XcuteServer(WerkzeugApp):
         job_id = self._get_job_id(req)
         self.backend.delete(job_id)
         return Response(status=204)
+
+    @handle_exceptions
+    def on_job_tasks(self, req: Request, **kwargs: Any) -> Response:
+        job_id: str = self._get_job_id(req)
+        force_master: bool = boolean_value(req.args.get("force_master"))
+        tasks: list[str] = self.backend.list_running_tasks(
+            job_id, force_master=force_master
+        )
+        return Response(json.dumps({"tasks": tasks}), mimetype=HTTP_CONTENT_TYPE_JSON)
 
     @handle_exceptions
     def on_lock_list(self, req, **kwargs):

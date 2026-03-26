@@ -925,6 +925,23 @@ class XcuteBackend(RedisConnection):
         job_id = debinarize(job_id)
         return dict(lock=lock, job_id=job_id)
 
+    @handle_redis_exceptions
+    def list_running_tasks(self, job_id: str, force_master: bool = False) -> list[str]:
+        """
+        Return the list of task IDs currently running for the given job.
+
+        :param job_id: ID of the xcute job
+        :param force_master: read from the Redis master instead of a slave
+        :returns: sorted list of task IDs (strings)
+        :raises NotFound: if the job does not exist
+        """
+        client = self.get_slave_conn(force_master=force_master)
+        job_info = self._get_job_info(job_id, client=client)
+        if not job_info:
+            raise redis.exceptions.ResponseError("no_job")
+        raw_tasks = client.smembers(self.key_tasks_running % job_id)
+        return sorted(debinarize(t) for t in raw_tasks)
+
     @staticmethod
     def _unmarshal_job_info(marshalled_job_info):
         job_info = dict(

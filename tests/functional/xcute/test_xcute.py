@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from oio.common.exceptions import Forbidden
+from oio.common.exceptions import Forbidden, NotFound
 from oio.xcute.client import XcuteClient
 from oio.xcute.common.job import XcuteJobStatus
 from tests.utils import BaseTestCase
@@ -605,3 +605,43 @@ class TestXcuteJobListFilters(XcuteTest):
         ids_master: set[str] = {j["job"]["id"] for j in data_master["jobs"]}
         self.assertIn(job["job"]["id"], ids_master)
         self.assertEqual(ids_default, ids_master)
+
+
+class TestXcuteJobTasks(XcuteTest):
+    def _create_running_job(self) -> dict[str, Any]:
+        """Create a long-running tester job and wait for it to reach RUNNING."""
+        job: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"end": 256}},
+        )
+        self._wait_for_job_status(job["job"]["id"], "RUNNING")
+        return job
+
+    def test_job_tasks_returns_list(self) -> None:
+        """job_tasks returns a non-empty list of task IDs for a running job."""
+        job: dict[str, Any] = self._create_running_job()
+        job_id: str = job["job"]["id"]
+
+        result: dict[str, Any] = self.xcute_client.job_tasks(job_id)
+
+        self.assertIn("tasks", result)
+        self.assertIsInstance(result["tasks"], list)
+        self.assertGreater(len(result["tasks"]), 0)
+        self._wait_for_job_status(job["job"]["id"], "FINISHED")
+
+    def test_job_tasks_unknown_job_raises_not_found(self) -> None:
+        """job_tasks raises NotFound for a non-existent job ID."""
+        with self.assertRaises(NotFound):
+            self.xcute_client.job_tasks("non-existent-job-id")
+
+    def test_job_tasks_finished_job_is_empty(self) -> None:
+        """A finished job has no running tasks."""
+        job: dict[str, Any] = self.xcute_client.job_create(
+            "tester",
+            job_config={"params": {"end": 0}},
+        )
+        self._wait_for_job_status(job["job"]["id"], "FINISHED")
+
+        result: dict[str, Any] = self.xcute_client.job_tasks(job["job"]["id"])
+
+        self.assertEqual([], result["tasks"])
