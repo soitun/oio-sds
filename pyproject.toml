@@ -47,7 +47,7 @@ lint = [
 ]
 # Read or write objects
 object = [
-  "blake3~=0.3.4",
+  "blake3",
 ]
 # Run services (account, xcute, etc.)
 service = [

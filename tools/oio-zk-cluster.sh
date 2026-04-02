@@ -1,7 +1,7 @@
 #!/bin/bash
 # Helper script to start a ZooKeeper cluster without root privileges.
 #
-# Copyright (C) 2021 OVH SAS
+# Copyright (C) 2021-2026 OVH SAS
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,7 @@ OPTS="$OPTS -Dcom.sun.management.jmxremote.local.only=false"
 OPTS="$OPTS -Dzookeeper.root.logger=INFO,ROLLINGFILE"
 OPTS="$OPTS -Dcom.sun.management.jmxremote.host=127.0.0.1"
 OPTS="$OPTS -Djute.maxbuffer=262144"
+OPTS="$OPTS -XX:+UseG1GC -XX:MaxGCPauseMillis=50"
 
 ZOOBASEPORT=2190
 ZOOBASEPORTLOW=2880
@@ -32,18 +33,17 @@ ZOOCFGROOT=$HOME/.oio/zookeeper
 ZOO_LOG4J_PROP="INFO,ROLLINGFILE"
 export ZOO_LOG4J_PROP
 
-
 TEMPDYN=$(mktemp -t zoo.cfg.dynamic.1.XXXX)
 
 bootstrap_cfg() {
-  MYID=$1
-  MYCFGDIR="$ZOOCFGROOT/$MYID"
-  MYPORT=$(($ZOOBASEPORT + $MYID))
-  MYPORTLOW=$(($ZOOBASEPORTLOW + $MYID))
-  MYPORTHIGH=$(($ZOOBASEPORTHIGH + $MYID))
-  mkdir -p "$MYCFGDIR/data" "$MYCFGDIR/logs"
+    MYID=$1
+    MYCFGDIR="$ZOOCFGROOT/$MYID"
+    MYPORT=$(($ZOOBASEPORT + $MYID))
+    MYPORTLOW=$(($ZOOBASEPORTLOW + $MYID))
+    MYPORTHIGH=$(($ZOOBASEPORTHIGH + $MYID))
+    mkdir -p "$MYCFGDIR/data" "$MYCFGDIR/logs"
 
-  cat > "$MYCFGDIR/zoo.cfg" << ZOOCFG
+    cat >"$MYCFGDIR/zoo.cfg" <<ZOOCFG
 # The number of milliseconds of each tick
 tickTime=2000
 # The number of ticks that the initial
@@ -83,122 +83,115 @@ skipACL=true
 4lw.commands.whitelist=stat, ruok, conf, isro, srvr, mntr
 ZOOCFG
 
-  echo "${MYID}" > "${MYCFGDIR}/data/myid"
-  echo "server.$MYID=127.0.0.1:$MYPORTLOW:$MYPORTHIGH" >> $TEMPDYN
+    echo "${MYID}" >"${MYCFGDIR}/data/myid"
+    echo "server.$MYID=127.0.0.1:$MYPORTLOW:$MYPORTHIGH" >>$TEMPDYN
 }
 
 find_process() {
-  MYID=$1
-  ZOOCFGDIR=$ZOOCFGROOT/${MYID}
-  ZOOCFG=${ZOOCFGDIR}/zoo.cfg
+    MYID=$1
+    ZOOCFGDIR=$ZOOCFGROOT/${MYID}
+    ZOOCFG=${ZOOCFGDIR}/zoo.cfg
 
-  ps -o pid,cmd -C java | grep "$ZOOCFG" | sed -r -e 's,^[ ]*([0-9]+)[ ].*,\1,'
+    ps -o pid,cmd -C java | grep "$ZOOCFG" | sed -r -e 's,^[ ]*([0-9]+)[ ].*,\1,'
 }
 
 finish_cfg() {
-  MYID=$1
-  MYCFGDIR="$ZOOCFGROOT/$MYID"
-  cp $TEMPDYN $MYCFGDIR/zoo.cfg.dynamic.1
+    MYID=$1
+    MYCFGDIR="$ZOOCFGROOT/$MYID"
+    cp $TEMPDYN $MYCFGDIR/zoo.cfg.dynamic.1
 }
 
 start_id() {
-  MYID=$1
-  ZOOCFGDIR=$ZOOCFGROOT/${MYID}
-  ZOOCFG=${ZOOCFGDIR}/zoo.cfg
-  ZOO_LOG_DIR=$ZOOCFGDIR/logs
+    MYID=$1
+    ZOOCFGDIR=$ZOOCFGROOT/${MYID}
+    ZOOCFG=${ZOOCFGDIR}/zoo.cfg
+    ZOO_LOG_DIR=$ZOOCFGDIR/logs
 
-  export ZOOCFG ZOOCFGDIR ZOO_LOG_DIR
-  (
-  nohup /usr/bin/java \
-    -cp "$ZOOCFGDIR:$CLASSPATH" \
-    $OPTS "-Dzookeeper.log.dir=$ZOO_LOG_DIR" \
-    $CLS "$ZOOCFG" >/dev/null 2>/dev/null &
-  )
-  echo "Process $(find_process $MYID) started."
+    export ZOOCFG ZOOCFGDIR ZOO_LOG_DIR
+    (
+        nohup /usr/bin/java \
+            -cp "$ZOOCFGDIR:$CLASSPATH" \
+            $OPTS "-Dzookeeper.log.dir=$ZOO_LOG_DIR" \
+            $CLS "$ZOOCFG" >/dev/null 2>/dev/null &
+    )
+    echo "Process $(find_process $MYID) started."
 }
 
 stop_id() {
-  MYID=$1
-  ZOOCFGDIR=$ZOOCFGROOT/${MYID}
-  ZOOCFG=${ZOOCFGDIR}/zoo.cfg
+    MYID=$1
+    ZOOCFGDIR=$ZOOCFGROOT/${MYID}
+    ZOOCFG=${ZOOCFGDIR}/zoo.cfg
 
-  PID=$(find_process $MYID)
-  if [ -n "$PID" ]
-  then
-    echo "Killing process $PID"
-    kill $PID
-  else
-    echo "No process found."
-  fi
+    PID=$(find_process $MYID)
+    if [ -n "$PID" ]; then
+        echo "Killing process $PID"
+        kill $PID
+    else
+        echo "No process found."
+    fi
 }
 
 clean_id() {
-  MYID=$1
-  ZOOCFGDIR=$ZOOCFGROOT/${MYID}
+    MYID=$1
+    ZOOCFGDIR=$ZOOCFGROOT/${MYID}
 
-  rm -v $ZOOCFGDIR/data/version-2/{log,snapshot}.*
-  rm -v $ZOOCFGDIR/logs/zookeeper*.log*
+    rm -v $ZOOCFGDIR/data/version-2/{log,snapshot}.*
+    rm -v $ZOOCFGDIR/logs/zookeeper*.log*
 }
 
 usage() {
-  echo "usage: $0 bootstrap|clean|start|stop [NUMBER]..."
-  echo
-  echo "Helper script to start a ZooKeeper cluster."
-  echo
-  echo "Actions:"
-  echo "    bootstrap: prepare configuration files"
-  echo "    clean:     clean logs and snapshots"
-  echo "    start:     start ZooKeeper node NUMBER"
-  echo "    stop:      stop ZooKeeper node NUMBER"
-  echo
-  echo "    NUMBER:	indices of ZooKeeper nodes (\"1 2 3\" to deploy 3 nodes)"
-  echo
-  echo "Environment:"
-  echo "    ZOOBINDIR: path to the directory of ZooKeeper utility scripts"
-  echo "               (required if installed from source)"
+    echo "usage: $0 bootstrap|clean|start|stop [NUMBER]..."
+    echo
+    echo "Helper script to start a ZooKeeper cluster."
+    echo
+    echo "Actions:"
+    echo "    bootstrap: prepare configuration files"
+    echo "    clean:     clean logs and snapshots"
+    echo "    start:     start ZooKeeper node NUMBER"
+    echo "    stop:      stop ZooKeeper node NUMBER"
+    echo
+    echo "    NUMBER:	indices of ZooKeeper nodes (\"1 2 3\" to deploy 3 nodes)"
+    echo
+    echo "Environment:"
+    echo "    ZOOBINDIR: path to the directory of ZooKeeper utility scripts"
+    echo "               (required if installed from source)"
 }
 
-if [ -n "$ZOOBINDIR" ]
-then
-  . $ZOOBINDIR/zkEnv.sh
+if [ -n "$ZOOBINDIR" ]; then
+    . $ZOOBINDIR/zkEnv.sh
 else
-  . /usr/share/zookeeper/bin/zkEnv.sh
+    . /usr/share/zookeeper/bin/zkEnv.sh
 fi
 
 OPERATION=$1
 shift
 
 case $OPERATION in
-  bootstrap)
-    for NUM in $@
-    do
-      bootstrap_cfg $NUM
+bootstrap)
+    for NUM in $@; do
+        bootstrap_cfg $NUM
     done
-    for NUM in $@
-    do
-      finish_cfg $NUM
+    for NUM in $@; do
+        finish_cfg $NUM
     done
     rm -f $TEMPDYN
     ;;
-  clean)
-    for NUM in $@
-    do
-      clean_id $NUM
+clean)
+    for NUM in $@; do
+        clean_id $NUM
     done
     ;;
-  start)
-    for NUM in $@
-    do
-      start_id $NUM
+start)
+    for NUM in $@; do
+        start_id $NUM
     done
     ;;
-  stop)
-    for NUM in $@
-    do
-      stop_id $NUM
+stop)
+    for NUM in $@; do
+        stop_id $NUM
     done
     ;;
-  *)
+*)
     usage
     exit 1
     ;;
