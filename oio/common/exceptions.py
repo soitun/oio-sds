@@ -59,6 +59,10 @@ class FaultyChunk(ChunkException):
             return super(FaultyChunk, self).__repr__()
 
 
+class InvalidResponse(OioException):
+    pass
+
+
 class OrphanChunk(ChunkException):
     pass
 

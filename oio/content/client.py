@@ -428,10 +428,25 @@ class ContentClient(RawxScoreMixin, ProxyClient):
         )
         params["properties"] = properties
         try:
-            resp, chunks = self._request(
+            resp, body = self._request(
                 "GET", "locate", params=params, retriable=True, **kwargs
             )
+            props = None
+            if isinstance(body, list):
+                # legacy proxy protocol: properties were sent in headers,
+                # body is just a list of chunks
+                chunks = body
+            elif isinstance(body, dict):
+                # new proxy protocol: properties are sent in the body,
+                # along with the list of chunks
+                chunks = body.get("chunks") or []
+                props = body.get("properties", None)
+            else:
+                raise exceptions.InvalidResponse(f"Invalid response body: {body!r}")
             content_meta = _extract_content_headers_meta(resp.headers)
+            if props is not None:
+                content_meta["properties"] = props
+
         except exceptions.OioNetworkException as exc:
             # TODO(FVE): this special behavior can be removed when
             # the 'content/locate' protocol is changed to include
