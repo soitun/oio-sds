@@ -1970,6 +1970,55 @@ class TestMeta2Contents(BaseTestCase):
                 break
         self.assertFalse(found)
 
+    def test_manifest_deleted_event_on_slo_overwrite(self):
+        """
+        When a new SLO manifest is PUT over an existing one (same name,
+        versioning suspended), a storage.manifest.deleted event must be
+        emitted so that MpuPartCleaner can delete the old parts asynchronously.
+        """
+        self.ref = "test_manifest_deleted_event_on_slo_overwrite_" + random_str(8)
+        reqid = request_id()
+
+        self.storage.container_create(self.account, self.ref, reqid=reqid)
+        self.clean_later(self.ref)
+
+        # Create a fake SLO manifest (object with an upload_id property)
+        upload_id = random_str(48)
+        reqid = request_id()
+        self.storage.object_create_ext(
+            self.account,
+            self.ref,
+            obj_name=self.ref,
+            data=b"manifest",
+            reqid=reqid,
+        )
+        self.storage.object_set_properties(
+            self.account,
+            self.ref,
+            obj=self.ref,
+            properties={"x-object-sysmeta-s3api-upload-id": upload_id},
+            reqid=reqid,
+        )
+
+        # Overwrite with a new object (simulates completing a new MPU)
+        reqid = request_id()
+        self.storage.object_create_ext(
+            self.account,
+            self.ref,
+            obj_name=self.ref,
+            data=b"new manifest",
+            reqid=reqid,
+        )
+
+        # A storage.manifest.deleted event must have been emitted for the old SLO
+        event = self.wait_for_kafka_event(
+            reqid=reqid,
+            types=(EventTypes.MANIFEST_DELETED,),
+            kafka_consumer=self._cls_mpu_consumer,
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(upload_id, event.env.get("upload_id"))
+
     def test_no_manifest_deleted_event(self):
         self.ref = "test_no_manifest_deleted_event_" + random_str(8)
         reqid = request_id()

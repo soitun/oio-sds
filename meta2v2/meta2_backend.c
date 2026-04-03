@@ -1797,6 +1797,26 @@ meta2_backend_put_alias(struct meta2_backend_s *m2b, struct oio_url_s *url,
 			return NEWERROR(CODE_NOT_ALLOWED, "Creating an object directly on "
 					"shard is not allowed. Please use the root container.");
 		}
+
+		/* If the existing object is an SLO manifest that will be overwritten,
+		 * emit the manifest.deleted event before the transaction so that
+		 * MpuPartCleaner can delete the old parts asynchronously.
+		 * This mirrors meta2_backend_delete_alias with slo_manifest=TRUE.
+		 * CONTENT_NOTFOUND means no existing object; BAD_REQUEST means the
+		 * existing object has no upload_id (not an SLO): both are harmless.
+		 * If the transaction later fails, MpuPartCleaner will see the manifest
+		 * still exists and will not delete any parts. */
+		err = _meta2_send_manifest_event(m2b, sq3, url);
+		if (err) {
+			if (err->code == CODE_CONTENT_NOTFOUND
+					|| err->code == CODE_BAD_REQUEST) {
+				g_clear_error(&err);
+			} else {
+				m2b_close(m2b, sq3, url);
+				return err;
+			}
+		}
+
 		struct m2db_put_args_s args;
 		memset(&args, 0, sizeof(args));
 		args.sq3 = sq3;
