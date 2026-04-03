@@ -1635,6 +1635,23 @@ meta2_backend_drain_content(struct meta2_backend_s *m2,
 	return err;
 }
 
+/* An MPU upload_id is base64url(uuid4-as-ascii): always 48 chars drawn from
+ * the base64url alphabet (A-Z a-z 0-9 - _ =). */
+#define MPU_UPLOAD_ID_LEN 48
+
+static gboolean
+_is_valid_upload_id(const gchar *s, gsize len)
+{
+	if (len != MPU_UPLOAD_ID_LEN)
+		return FALSE;
+	for (gsize i = 0; i < len; i++) {
+		gchar c = s[i];
+		if (!g_ascii_isalnum(c) && c != '-' && c != '_' && c != '=')
+			return FALSE;
+	}
+	return TRUE;
+}
+
 static GError *
 _meta2_send_manifest_event(struct meta2_backend_s *m2b,
 		struct sqlx_sqlite3_s *sq3, struct oio_url_s *url)
@@ -1690,6 +1707,25 @@ _meta2_send_manifest_event(struct meta2_backend_s *m2b,
 	err = m2db_get_properties(sq3, url, _extract_upload_id, NULL);
 
 	if (!err) {
+		gboolean is_marker = FALSE;
+		if (upload_id->len <= 0) {
+			/* No upload_id property: check whether this is an MPU marker.
+			 * Markers live in a container whose name ends with "+segments"
+			 * and have path format {object_name}/{upload_id}.
+			 * Both conditions must hold before extracting the upload_id
+			 * from the path, to avoid treating arbitrary objects that
+			 * happen to have a '/' in their name as markers. */
+			const char *container = oio_url_get(url, OIOURL_USER);
+			const char *path = oio_url_get(url, OIOURL_PATH);
+			const char *last_slash = path ? strrchr(path, '/') : NULL;
+			const char *candidate = last_slash ? last_slash + 1 : NULL;
+			if (container && g_str_has_suffix(container, "+segments")
+					&& candidate && _is_valid_upload_id(candidate,
+						strlen(candidate))) {
+				g_string_append(upload_id, candidate);
+				is_marker = TRUE;
+			}
+		}
 		if (upload_id->len <= 0) {
 			err = BADREQ("No upload_id found for the object");
 		} else {
@@ -1699,8 +1735,12 @@ _meta2_send_manifest_event(struct meta2_backend_s *m2b,
 					oio_ext_get_reqid());
 			g_string_append_static(event, ",\"upload_id\":\"");
 			oio_str_gstring_append_json_blob(event, upload_id->str, upload_id->len);
-			g_string_append_printf(event, "\",\"manifest_version\":\"%ld\"}",
+			g_string_append_printf(event, "\",\"manifest_version\":\"%ld\"",
 					manifest_version);
+			if (is_marker) {
+				g_string_append_static(event, ",\"is_marker\":true");
+			}
+			g_string_append_c(event, '}');
 
 			if (!oio_events_queue__send(m2b->notifier_manifest_deleted, NULL,
 					g_string_free(event, FALSE))) {

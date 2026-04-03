@@ -66,21 +66,29 @@ class MpuPartCleaner(Filter):
         )
 
     def _delete_is_possible(
-        self, event, account, container, path, version, upload_id, reqid=None
+        self,
+        event,
+        account,
+        container,
+        path,
+        version,
+        upload_id,
+        is_marker=False,
+        reqid=None,
     ) -> bool:
         """
         Check if it's possible (and allowed) to delete the parts of the
         specified MPU.
 
-        :raises RetryLater: if the manifest still exists
+        :raises RetryLater: if the manifest/marker still exists
         :raises RejectMessage: if there is a problem with the event
         :returns: True if the parts can be safely deleted,
             False if there is nothing to do
         """
         try:
-            # Make sure manifest doesn't exist. Nominal path is "content_get_properties"
-            # raises a NotFound because the manifest is deleted.
-            # Then we can delete parts.
+            # Make sure the manifest (or marker for abort) doesn't exist.
+            # Nominal path is "content_get_properties" raises a NotFound
+            # because the object is deleted. Then we can delete parts.
             props = self.content_client.content_get_properties(
                 account=account,
                 reference=container,
@@ -90,16 +98,17 @@ class MpuPartCleaner(Filter):
                 reqid=reqid,
             )
 
-            # The object exist, make sure everything is coherent ..
-            # .. the object is a manifest ..
-            if not props.get("properties", {}).get(SLO):
-                # Event created for a single object,
-                # do not drop the event and fix the emitter.
-                raise RejectMessage("Object is not a manifest")
-            # .. and the upload_id is consistent
-            if props.get("properties", {}).get(UPLOAD_ID) != upload_id:
-                # Event malformed, do not drop the event and fix the emitter
-                raise RejectMessage("Upload_id mismatch between object and event")
+            if not is_marker:
+                # The object exist, make sure everything is coherent ..
+                # .. the object is a manifest ..
+                if not props.get("properties", {}).get(SLO):
+                    # Event created for a single object,
+                    # do not drop the event and fix the emitter.
+                    raise RejectMessage("Object is not a manifest")
+                # .. and the upload_id is consistent
+                if props.get("properties", {}).get(UPLOAD_ID) != upload_id:
+                    # Event malformed, do not drop the event and fix the emitter
+                    raise RejectMessage("Upload_id mismatch between object and event")
 
             # Check the ctime of the event.
             # If master still answers that the manifest exist after
@@ -129,14 +138,19 @@ class MpuPartCleaner(Filter):
             # Manifest does not exist anymore, we can delete the parts
             return True
 
-    def _list_parts(self, account, part_container, path, upload_id, reqid=None):
+    def _list_parts(
+        self, account, part_container, path, upload_id, is_marker=False, reqid=None
+    ):
         """
         List the parts of the specified MPU.
 
         :raises NotFound: if the part container has been deleted
         :returns: the list of parts, and a boolean telling if it is truncated
         """
-        prefix = f"{path}/{upload_id}/"
+        # For marker events (abort), the path is already {object_name}/{upload_id}
+        # so the parts prefix is simply path + "/".
+        # For manifest events (overwrite), we build {path}/{upload_id}/.
+        prefix = f"{path}/" if is_marker else f"{path}/{upload_id}/"
 
         headers, content_list = self.container_client.container_list_content(
             account=account,
@@ -195,15 +209,34 @@ class MpuPartCleaner(Filter):
             # Event malformed, do not drop the event and fix the emitter
             raise RejectMessage("Missing upload_id in event")
 
+        is_marker = bool(event.env.get("is_marker"))
+
         if not self._delete_is_possible(
-            event, account, container, path, version, upload_id, reqid=reqid
+            event,
+            account,
+            container,
+            path,
+            version,
+            upload_id,
+            is_marker=is_marker,
+            reqid=reqid,
         ):
             return self.app(env, cb)
 
-        part_container = f"{container}{MULTIUPLOAD_SUFFIX}"
+        # For marker events (MPU abort), the event container is already
+        # {container}+segments; for manifest events (overwrite) we append it.
+        if is_marker:
+            part_container = container
+        else:
+            part_container = f"{container}{MULTIUPLOAD_SUFFIX}"
         try:
             parts, listing_truncated = self._list_parts(
-                account, part_container, path, upload_id, reqid=reqid
+                account,
+                part_container,
+                path,
+                upload_id,
+                is_marker=is_marker,
+                reqid=reqid,
             )
         except NotFound:
             # This happens if the customer deletes its bucket before this event is

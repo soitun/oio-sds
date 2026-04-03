@@ -32,6 +32,7 @@ from oio.common.constants import (
     FORCEVERSIONING_HEADER,
     M2_PROP_OBJECTS,
     M2_PROP_USAGE,
+    MULTIUPLOAD_SUFFIX,
     OBJECT_METADATA_PREFIX,
     OIO_DB_DISABLED,
     OIO_DB_ENABLED,
@@ -2018,6 +2019,55 @@ class TestMeta2Contents(BaseTestCase):
         )
         self.assertIsNotNone(event)
         self.assertEqual(upload_id, event.env.get("upload_id"))
+        self.assertFalse(event.env.get("is_marker"))
+
+    def test_manifest_deleted_event_on_mpu_marker_delete(self):
+        """
+        When an MPU marker ({object_name}/{upload_id}) in a +segments container
+        is deleted with slo_manifest=True (abort case), a
+        storage.manifest.deleted event must be emitted with is_marker=True so
+        that MpuPartCleaner can delete the parts asynchronously.
+        """
+        self.ref = "test_manifest_deleted_event_on_mpu_marker_delete_" + random_str(8)
+        reqid = request_id()
+
+        seg_container = self.ref + MULTIUPLOAD_SUFFIX
+        self.storage.container_create(self.account, seg_container, reqid=reqid)
+        self.clean_later(seg_container)
+
+        # Create a fake MPU marker: path is {object_name}/{upload_id},
+        # no x-object-sysmeta-s3api-upload-id property (unlike a manifest).
+        upload_id = random_str(48)
+        marker_path = f"myobject/{upload_id}"
+        reqid = request_id()
+        self.storage.object_create_ext(
+            self.account,
+            seg_container,
+            obj_name=marker_path,
+            data=b"",
+            reqid=reqid,
+        )
+
+        # Delete the marker with slo_manifest=True, as the abort handler does.
+        reqid = request_id()
+        self.storage.object_delete(
+            self.account,
+            seg_container,
+            obj=marker_path,
+            slo_manifest=True,
+            reqid=reqid,
+        )
+
+        # A storage.manifest.deleted event with is_marker=True must be emitted,
+        # carrying the upload_id extracted from the marker path.
+        event = self.wait_for_kafka_event(
+            reqid=reqid,
+            types=(EventTypes.MANIFEST_DELETED,),
+            kafka_consumer=self._cls_mpu_consumer,
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(upload_id, event.env.get("upload_id"))
+        self.assertTrue(event.env.get("is_marker"))
 
     def test_no_manifest_deleted_event(self):
         self.ref = "test_no_manifest_deleted_event_" + random_str(8)
