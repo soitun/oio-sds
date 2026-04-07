@@ -2,7 +2,7 @@
 OpenIO SDS meta2v2
 Copyright (C) 2014 Worldline, as part of Redcurrant
 Copyright (C) 2015-2019 OpenIO SAS, as part of OpenIO SDS
-Copyright (C) 2021 OVH SAS
+Copyright (C) 2021-2026 OVH SAS
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -421,8 +421,12 @@ _stmt_apply_GV_parameter(sqlite3_stmt *stmt, int pos, GVariant *p)
 	}
 
 	if (g_variant_is_of_type(p, G_VARIANT_TYPE_BYTESTRING)) {
-		sqlite3_bind_blob(stmt, pos, g_variant_get_data(p),
-				g_variant_get_size(p), NULL);
+		if (g_variant_get_size(p) == 0) {
+			sqlite3_bind_zeroblob(stmt, pos, -1);
+		} else {
+			sqlite3_bind_blob(stmt, pos, g_variant_get_data(p),
+					g_variant_get_size(p), NULL);
+		}
 		return NULL;
 	}
 

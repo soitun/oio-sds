@@ -61,12 +61,12 @@ const struct bean_descriptor_s *TABLE_TO_MERGE[5] = {
 
 /* Tell if a bean represents a property and has a NULL or empty value. */
 static gboolean
-_is_empty_prop(gpointer bean)
+_is_null_prop(gpointer bean)
 {
 	if (DESCR(bean) != &descr_struct_PROPERTIES)
 		return FALSE;
 	GByteArray *val = PROPERTIES_get_value((struct bean_PROPERTIES_s *)bean);
-	return !val || !val->len || !val->data;
+	return !val || !val->data;
 }
 
 void
@@ -1455,7 +1455,7 @@ m2db_set_properties(struct sqlx_sqlite3_s *sq3, struct oio_url_s *url,
 			continue;
 		PROPERTIES_set_alias(prop, name);
 		PROPERTIES_set_version(prop, version);
-		if (_is_empty_prop(prop)) {
+		if (_is_null_prop(prop)) {
 			err = _db_delete_bean(sq3, prop);
 			// In case it is empty but not NULL
 			PROPERTIES_set_value(prop, NULL);
@@ -2197,8 +2197,8 @@ static GError* m2db_real_put_alias(struct sqlx_sqlite3_s *sq3, GSList *beans,
 		m2_onbean_cb cb, gpointer cb_data) {
 	GError *err = NULL;
 	for (GSList *l = beans; !err && l; l = l->next) {
-		/* FIXME(FVE): we could accept empty properties (but not NULL ones). */
-		if (_is_empty_prop(l->data))
+		/* We could accept empty properties (but not NULL ones). */
+		if (_is_null_prop(l->data))
 			PROPERTIES_set_value(l->data, NULL);
 		else
 			err = _db_save_bean(sq3, l->data);
