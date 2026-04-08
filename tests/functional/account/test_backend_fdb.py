@@ -4417,6 +4417,90 @@ class TestAccountBackend(BaseTestCase):
         )
         self._check_backend(*backend_info)
 
+    def test_register_feature_action_bucket_in_db_space_but_not_in_bucket_space(self):
+        """
+        Test that _register_feature_action raises NotFound when a bucket
+        is present in bucket_db_space (owner confirmed) but absent from
+        bucket_space (no actual bucket data).
+        """
+        account_id = "account-" + random_str(6)
+        bucket_name = "ghost-bucket-" + random_str(6)
+        region = "REGIONONE"
+        feature = "some-feature"
+
+        # Create the account
+        self.backend.create_account(account_id)
+
+        # Manually write the owner in bucket_db_space without rtime,
+        # simulating a confirmed owner but no actual bucket in bucket_space.
+        reserved_bucket_space = self.backend.bucket_db_space[bucket_name]
+        tr = self.backend.db.create_transaction()
+        tr[reserved_bucket_space.pack(("account",))] = account_id.encode("utf-8")
+        # No rtime key → owner is considered confirmed
+        tr.commit().wait()
+
+        # Verify the owner is set in bucket_db_space
+        tr = self.backend.db.create_transaction()
+        account_val = tr[reserved_bucket_space.pack(("account",))]
+        self.assertTrue(
+            account_val.present(), "account should be set in bucket_db_space"
+        )
+        self.assertEqual(account_val.decode("utf-8"), account_id)
+        rtime_val = tr[reserved_bucket_space.pack(("rtime",))]
+        self.assertFalse(rtime_val.present(), "rtime should not be set")
+
+        # Verify the bucket does NOT exist in bucket_space
+        bucket_space = self.backend.bucket_space[account_id][bucket_name]
+        bucket_range = bucket_space.range()
+        entries = list(
+            self.backend.db.get_range(
+                bucket_range.start,
+                bucket_range.stop,
+                streaming_mode=fdb.StreamingMode.want_all,
+            )
+        )
+        self.assertEqual(
+            len(entries), 0, "bucket_space should be empty for this bucket"
+        )
+
+        # feature_activate should raise NotFound because the bucket
+        # has no region field in bucket_space
+        with self.assertRaises(Conflict) as ctx:
+            self.backend.feature_activate(
+                region=region,
+                feature=feature,
+                bucket=bucket_name,
+                account=account_id,
+            )
+        self.assertIn(bucket_name, str(ctx.exception))
+
+        # Same for feature_deactivate
+        with self.assertRaises(Conflict) as ctx:
+            self.backend.feature_deactivate(
+                region=region,
+                feature=feature,
+                bucket=bucket_name,
+                account=account_id,
+            )
+        self.assertIn(bucket_name, str(ctx.exception))
+
+        # Verify no feature data leaked into any space
+        # No feature metrics should have been incremented
+        features_space = self.backend.features_space[region.upper()][feature]
+        features_range = features_space.range()
+        feature_entries = list(
+            self.backend.db.get_range(
+                features_range.start,
+                features_range.stop,
+                streaming_mode=fdb.StreamingMode.want_all,
+            )
+        )
+        self.assertEqual(
+            len(feature_entries),
+            0,
+            "No feature entries should exist after failed calls",
+        )
+
     def test_list_buckets_per_feature(self):
         region = "LOCALHOST"
         account = "test"
