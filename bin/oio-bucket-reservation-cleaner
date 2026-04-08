@@ -59,7 +59,7 @@ class DeletedBucketReservationCleaner:
         self.backend = AccountBackendFdb(conf, logger)
         self.backend.init_db()
 
-    def run(self, limit=None, dry_run=False):
+    def run(self, batch_limit=1000, dry_run=False):
         """
         Run the cleanup process for expired deleted bucket reservations.
 
@@ -69,10 +69,10 @@ class DeletedBucketReservationCleaner:
         them, making those bucket names available for new reservations.
 
         Args:
-            limit (int): Maximum number of reservations to cleanup in a single
-                run. When not specified (None), defaults to 1000. Use this to
-                control the pagination batch size and prevent long-running
-                transactions. Default is None.
+            batch_limit (int): Maximum number of bucket reservations to scan
+                in each transaction (not just expired ones). Use this to control
+                the pagination batch size and prevent long-running transactions.
+                Default is 1000.
             dry_run (bool): If True, only list expired reservations without
                 actually deleting them. Useful for previewing what would be
                 cleaned up. Default is False.
@@ -81,7 +81,7 @@ class DeletedBucketReservationCleaner:
             dict: A dictionary with keys ``cleaned``, ``errors``, ``scanned``.
         """
         result = self.backend.cleanup_deleted_bucket_reservations(
-            limit=limit, dry_run=dry_run
+            batch_limit=batch_limit, dry_run=dry_run
         )
 
         action = "would be cleaned" if dry_run else "cleaned"
@@ -108,11 +108,11 @@ def make_arg_parser():
         help="Do not modify data, only report count",
     )
     parser.add_argument(
-        "--limit",
+        "--batch-limit",
         type=int,
         default=1000,
         help="Maximum number of bucket reservations to scan "
-        "in each transaction (default: 1000)",
+        "in each transaction (not just expired ones) (default: 1000)",
     )
     parser.add_argument(
         "--verbose",
@@ -141,7 +141,7 @@ def main():
     logger = get_logger(conf, verbose=args.verbose)
 
     cleaner = DeletedBucketReservationCleaner(conf, logger)
-    result = cleaner.run(limit=args.limit, dry_run=args.dry_run)
+    result = cleaner.run(batch_limit=args.batch_limit, dry_run=args.dry_run)
     sys.exit(1 if result["errors"] else 0)
 
 

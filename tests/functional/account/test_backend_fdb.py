@@ -4902,10 +4902,12 @@ class TestBucketDeletionReservation(BaseTestCase):
         # Wait for grace period to expire
         sleep(3)
 
-        # Cleanup with limit=1
-        result = self.backend.cleanup_deleted_bucket_reservations(limit=1)
+        # Cleanup with batch_limit=1
+        result = self.backend.cleanup_deleted_bucket_reservations(batch_limit=1)
         self.assertEqual(
-            result["cleaned"], 3, "Should clean all expired buckets even with limit=1"
+            result["cleaned"],
+            3,
+            "Should clean all expired buckets even with batch_limit=1",
         )
 
         # Should have no expired buckets
@@ -4942,7 +4944,7 @@ class TestBucketDeletionReservation(BaseTestCase):
 
         for _ in range(10):  # Limit iterations to prevent infinite loop
             buckets_batch, next_marker = self.backend._get_expired_reservation_batch(
-                limit=batch_size, marker=marker
+                self.backend.db, limit=batch_size, marker=marker
             )
 
             if not buckets_batch:
@@ -4980,7 +4982,7 @@ class TestBucketDeletionReservation(BaseTestCase):
 
         for _ in range(20):  # Limit iterations
             buckets_batch, next_marker = self.backend._get_expired_reservation_batch(
-                limit=3, marker=marker
+                self.backend.db, limit=3, marker=marker
             )
 
             if not buckets_batch:

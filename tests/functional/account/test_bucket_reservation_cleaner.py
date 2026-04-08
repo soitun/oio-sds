@@ -82,7 +82,7 @@ class TestBucketReservationCleaner(BaseTestCase):
 
         try:
             run(
-                [cleaner_cmd, "--limit", "10", conf_path],
+                [cleaner_cmd, "--batch-limit", "10", conf_path],
                 check=True,
                 capture_output=True,
                 text=True,

@@ -2821,16 +2821,19 @@ class AccountBackendFdb(object):
         return new_marker if count > batch_size else None
 
     @catch_service_errors
-    def cleanup_deleted_bucket_reservations(self, limit=None, dry_run=False, **_kwargs):
+    def cleanup_deleted_bucket_reservations(
+        self, batch_limit=1000, dry_run=False, **_kwargs
+    ):
         """
         Clean up expired bucket reservations (grace period has passed).
 
-        :param limit: Maximum number of buckets to process
+        :param batch_limit: Maximum number of bucket reservations to scan
+            in each transaction (not just expired ones)
         :param dry_run: If True, don't actually clean up, just count
         :returns: dict with keys ``cleaned``, ``errors``, ``scanned``
         :rtype: dict
         """
-        buckets = self._list_expired_reservations(limit=limit)
+        buckets = self._list_expired_reservations(batch_limit=batch_limit)
         cleaned = 0
         errors = 0
         scanned = 0
@@ -2858,86 +2861,74 @@ class AccountBackendFdb(object):
                 )
         return {"cleaned": cleaned, "errors": errors, "scanned": scanned}
 
-    def _list_expired_reservations(self, limit=None):
+    def _list_expired_reservations(self, batch_limit=1000):
         """
         Generator that yields buckets with expired grace period.
 
-        :param limit: Maximum number of buckets to scan per batch
-                    (not just expired ones)
+        :param batch_limit: Maximum number of bucket reservations to scan
+            in each transaction (not just expired ones)
         :yields: Bucket names with expired rtime
         """
         # Use a default batch size when no limit is specified to prevent infinite loops
         # when re-scanning the same buckets from the beginning
-        batch_limit = limit if limit else 1000
         marker = None
         while True:
             buckets, marker = self._get_expired_reservation_batch(
-                limit=batch_limit, marker=marker
+                self.db, limit=batch_limit, marker=marker
             )
-            if not buckets:
-                break
             for bucket in buckets:
                 yield bucket
             # If marker is None, we've reached the end, don't call again
             if marker is None:
                 break
 
-    def _get_expired_reservation_batch(self, limit=None, marker=None):
+    @fdb.transactional
+    @use_snapshot_reads
+    def _get_expired_reservation_batch(self, tr, limit=1000, marker=None):
         """
         Get a batch of buckets with expired grace period
         (rtime + reservation_delay <= now).
 
-        :param limit: Maximum number of buckets to scan (not just expired ones)
+        :param limit: Maximum number of bucket reservations to scan
+            in each transaction (not just expired ones)
         :param marker: Bucket name to start from (exclusive)
         :returns: Tuple of (list of expired bucket names, next marker or None)
         """
         now = self._get_timestamp()
-        tr = self.db.create_transaction()
 
-        while True:
-            try:
-                buckets = []
-                next_marker = None
-                # Determine start and stop positions for range scan
-                start, stop = self._get_start_and_stop(
-                    self.bucket_db_space, marker=marker
-                )
+        buckets = []
+        next_marker = None
+        # Determine start and stop positions for range scan
+        start, stop = self._get_start_and_stop(self.bucket_db_space, marker=marker)
 
-                # Use snapshot to avoid conflicts on read-only scan
-                iterator = tr.snapshot.get_range(
-                    start,
-                    stop,
-                    streaming_mode=fdb.StreamingMode.want_all,
-                )
+        # Use snapshot to avoid conflicts on read-only scan
+        iterator = tr.get_range(start, stop)
 
-                last_bucket = None
-                buckets_scanned = 0
-                for key, value in iterator:
-                    bucket, field = self.bucket_db_space.unpack(key)
+        last_bucket = None
+        buckets_scanned = 0
+        for key, value in iterator:
+            bucket, field = self.bucket_db_space.unpack(key)
 
-                    # Track last bucket seen and count unique buckets
-                    if last_bucket != bucket:
-                        # Check if we've already scanned the limit
-                        # before processing new bucket
-                        if limit and buckets_scanned >= limit:
-                            # Already scanned limit buckets, stop here
-                            # marker is the last completed bucket
-                            next_marker = last_bucket
-                            break
-                        buckets_scanned += 1
-                        last_bucket = bucket
+            # Track last bucket seen and count unique buckets
+            if last_bucket != bucket:
+                # Check if we've already scanned the limit
+                # before processing new bucket
+                if buckets_scanned >= limit:
+                    # Already scanned limit buckets, stop here
+                    # marker is the last completed bucket
+                    next_marker = last_bucket
+                    break
+                buckets_scanned += 1
+                last_bucket = bucket
 
-                    # Only process rtime fields
-                    if field != "rtime":
-                        continue
-                    rtime_val = self._timestamp_value_to_timestamp(value)
-                    if rtime_val + self.bucket_reservation_timeout <= now:
-                        buckets.append(bucket)
+            # Only process rtime fields
+            if field != "rtime":
+                continue
+            rtime_val = self._timestamp_value_to_timestamp(value)
+            if rtime_val + self.bucket_reservation_timeout <= now:
+                buckets.append(bucket)
 
-                return buckets, next_marker
-            except fdb.impl.FDBError as exc:
-                tr.on_error(exc).wait()
-                tr = self.db.create_transaction()
+        return buckets, next_marker
 
     @fdb.transactional
     def _cleanup_deleted_bucket_reservation(self, tr, bucket, dry_run=False):
