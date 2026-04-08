@@ -131,6 +131,13 @@ def main():
     """Main entry point for the bucket reservation cleaner."""
     args = make_arg_parser().parse_args()
     conf = read_conf(args.configuration, "account-server")
+    # Remove logging configuration from conf to avoid using
+    # the account service-specific configuration
+    conf = {
+        k: v
+        for k, v in conf.items()
+        if not (k.startswith("log_") or k.startswith("syslog_"))
+    }
     logger = get_logger(conf, verbose=args.verbose)
 
     cleaner = DeletedBucketReservationCleaner(conf, logger)

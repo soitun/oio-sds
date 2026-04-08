@@ -2959,16 +2959,28 @@ class AccountBackendFdb(object):
         bucket_space = self.bucket_space[current_account][bucket]
         bucket_exists = tr[bucket_space.pack((REGION_FIELD,))].present()
 
-        if dry_run:
-            return True
-
         if bucket_exists:
             # Bucket was recreated
-            # make sure deleted and rtime keys are cleared
+            # make sure deleted, rtime, and dtime keys are cleared
+            self.logger.warning(
+                "The bucket exists, cleaning up useless reservation keys "
+                "for bucket %s/%s",
+                current_account,
+                bucket,
+            )
+            if dry_run:
+                return True
             tr.clear(reserved_bucket_space.pack(("rtime",)))
             tr.clear(reserved_bucket_space.pack(("deleted",)))
         else:
             # Bucket doesn't exist, clear entire reservation space
+            self.logger.info(
+                "Cleaning up expired reservation for bucket %s/%s",
+                current_account,
+                bucket,
+            )
+            if dry_run:
+                return True
             reserved_bucket_range = reserved_bucket_space.range()
             tr.clear_range(reserved_bucket_range.start, reserved_bucket_range.stop)
 
