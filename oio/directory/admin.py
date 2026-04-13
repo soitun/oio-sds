@@ -142,7 +142,7 @@ class ForwarderClient(ProxyClient):
         """
         _ = self.__forward_to_service(service_id, "POST", "flush", **kwargs)
 
-    def forward_get_info(self, service_id, retriable=True, **kwargs):
+    def forward_get_info(self, service_id, retriable=True, method="GET", **kwargs):
         """
         Get all information from the specified service.
 
@@ -154,7 +154,7 @@ class ForwarderClient(ProxyClient):
         :rtype: `dict`
         """
         _resp, body = self.__forward_to_service(
-            service_id, "GET", "info", retriable=retriable, **kwargs
+            service_id, method, "info", retriable=retriable, **kwargs
         )
         return body
 
