@@ -108,7 +108,7 @@ fi
 $SYSTEMCTL stop oio-meta2-crawler-2.service || true
 # stop current cluster and clean services and targets
 $SYSTEMCTL stop oio-cluster.target || true
-rm -f $SYSTEMD_DIR/oio-*
+rm -rf $SYSTEMD_DIR/oio-*
 
 mkdir -p "$OIO"
 cd "$OIO"
