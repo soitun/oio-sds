@@ -86,6 +86,12 @@ class ECContent(Content):
             current_chunk.quality["cur_items"] = cur_items
 
         last_error = None
+        # Becomes True once the chunk we are rebuilding is itself detected
+        # as corrupt by the rawx-side HEAD+verify_checksum. We pass this
+        # to _actually_rebuild so that the target is added to the broken
+        # list (spare placement avoids its rawx) and its on-disk copy is
+        # NOT fetched into the EC reconstruction source pool.
+        target_corrupted = False
         for attempt in range(max_attempts):
             try:
                 return self._actually_rebuild(
@@ -95,14 +101,40 @@ class ECContent(Content):
                     allow_same_rawx=allow_same_rawx,
                     read_all_available_sources=read_all_available_sources,
                     reqid=reqid,
+                    target_corrupted=target_corrupted,
                 )
             except (UnrecoverableContent, ObjectUnavailable) as err:
                 last_error = err
                 if attempt + 1 >= max_attempts:
                     break
                 if read_all_available_sources:
+                    # Include the chunk we are rebuilding in the HEAD sweep
+                    # so that when the target itself is the corrupt chunk
+                    # (its on-disk copy is fed back into ECRebuildHandler
+                    # as a source), we detect that and exclude it. Without
+                    # this, chunks.all() excludes the target and the filter
+                    # never sees it, so the retry keeps reading the same
+                    # corrupt bytes and failing identically.
+                    candidates = list(chunks.all())
+                    target_in_candidates = (
+                        not target_corrupted
+                        and chunk_id is not None
+                        and bool(current_chunk.raw().get("url"))
+                    )
+                    if target_in_candidates:
+                        candidates.append(current_chunk)
+                    filtered = self._filter_corrupted_chunks(candidates)
+                    if target_in_candidates and current_chunk not in filtered:
+                        self.logger.warning(
+                            "Target chunk %s rejected by rawx checksum "
+                            "verification; rebuilding without reading its "
+                            "on-disk copy (reqid=%s)",
+                            current_chunk.url,
+                            reqid,
+                        )
+                        target_corrupted = True
                     chunks = ChunksHelper(
-                        self._filter_corrupted_chunks(chunks.all()),
+                        [c for c in filtered if c is not current_chunk],
                         raw_chunk=False,
                     )
                 continue
@@ -203,12 +235,13 @@ class ECContent(Content):
         allow_same_rawx=False,
         read_all_available_sources=False,
         reqid=None,
+        target_corrupted=False,
     ):
         # Find a spare chunk address
         broken_list = source_chunks.duplicates(
             threshold=self.duplication_threshold
         ).all()
-        if not allow_same_rawx and chunk_id is not None:
+        if (not allow_same_rawx or target_corrupted) and chunk_id is not None:
             broken_list.append(current_chunk)
         candidates = list(
             source_chunks.unique(threshold=self.duplication_threshold).all()
@@ -227,12 +260,23 @@ class ECContent(Content):
             if k in self.conf:
                 cfg[k] = self.conf[k]
 
+        # Build the meta_chunk passed to ECRebuildHandler. When the target
+        # is known corrupt, exclude its raw entry: the handler would
+        # otherwise GET its on-disk bytes and feed them into PyECLib's
+        # reconstruct, which then raises "Invalid fragment payload" on
+        # any short stripe. Sources alone are enough as long as we have
+        # at least nb_data of them.
+        if target_corrupted:
+            meta_chunk = tuple(source_chunks.raw())
+        else:
+            meta_chunk = (*source_chunks.raw(), current_chunk.raw())
+
         # Regenerate the lost chunk's data, from existing chunks
         expected_chunk_size = 0
         for all_sources in set((read_all_available_sources, True)):
             try:
                 handler = ECRebuildHandler(
-                    (*(source_chunks.raw()), current_chunk.raw()),
+                    meta_chunk,
                     current_chunk.subpos,
                     self.storage_method,
                     read_all_available_sources=all_sources,

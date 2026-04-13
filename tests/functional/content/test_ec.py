@@ -20,6 +20,7 @@ import random
 import time
 from io import BytesIO
 
+from oio.common.constants import CHUNK_XATTR_KEYS
 from oio.common.exceptions import (
     ClientPreconditionFailed,
     NotFound,
@@ -105,9 +106,7 @@ class TestECContent(BaseTestCase):
                 + f"size={chunk_size}, first_block_size={first_block_size}"
             )
         truncate_size = min_truncate
-        with open(chunk_path, "wb") as chunk_fd:
-            chunk_fd.truncate(chunk_size - truncate_size)
-            chunk_fd.flush()
+        os.truncate(chunk_path, chunk_size - truncate_size)
 
     def _test_create(self, data_size):
         # generate random test data
@@ -344,6 +343,89 @@ class TestECContent(BaseTestCase):
         rebuilt_chunk = rebuilt_content.chunks.filter(pos=removed_chunk.pos).one()
         self.assertIsNotNone(rebuilt_chunk)
         self.assertNotEqual(removed_chunk.url, rebuilt_chunk.url)
+
+    def test_content_rebuild_when_target_is_corrupt(self):
+        """Validate that EC rebuild succeeds when the
+        target chunk is corrupted on disk.
+        """
+        if self.ec_enable_pass_through:
+            self.skipTest("Covered by non pass-through EC rebuild tests")
+
+        probe_content = self.content_factory.new(
+            self.container_id,
+            self.content,
+            1,
+            self.stgpol,
+        )
+        first_block_size = probe_content.storage_method.ec_fragment_size
+        data_size = (self.k + self.m) * first_block_size + 1024
+        data = random_data(data_size)
+
+        content = self.content_factory.new(
+            self.container_id,
+            self.content,
+            len(data),
+            self.stgpol,
+        )
+        content.create(BytesIO(data))
+        content = self.content_factory.get(
+            self.container_id,
+            content.content_id,
+        )
+
+        rawx_volumes = self._rawx_volumes()
+        chunks = sorted(list(content.chunks), key=lambda chunk: chunk.pos)
+        target_chunk = chunks[0]
+
+        target_size = int(self.blob_client.chunk_head(target_chunk.url)["chunk_size"])
+        self.assertGreater(target_size, first_block_size)
+
+        # Truncate the target chunk on disk.
+        self._truncate_chunk_tail(
+            target_chunk,
+            rawx_volumes,
+            first_block_size=first_block_size,
+            min_truncate=64,
+            max_truncate=64,
+        )
+
+        # Clear the compression xattr so the rawx's GET handler bypasses
+        # its size check (``checkChunkSize`` is only triggered for
+        # ``compression == "off"``). Without this, the rawx would refuse
+        # to serve the truncated chunk with 412 Precondition Failed on
+        # GET and ECRebuildHandler would naturally exclude it — hiding
+        # the bug.
+        target_chunk_path = self.chunk_path_from_url(
+            target_chunk.url,
+            rawx_volumes,
+        )
+        os.setxattr(
+            target_chunk_path,
+            "user." + CHUNK_XATTR_KEYS["compression"],
+            b"",
+        )
+
+        self.assertRaises(
+            ClientPreconditionFailed,
+            self.blob_client.chunk_head,
+            target_chunk.url,
+            verify_checksum=True,
+        )
+
+        rebuilt_size = content.rebuild_chunk(
+            target_chunk.id,
+            allow_same_rawx=True,
+            read_all_available_sources=True,
+        )
+        self.assertEqual(target_size, rebuilt_size)
+
+        rebuilt_content = self.content_factory.get(
+            self.container_id,
+            content.content_id,
+        )
+        rebuilt_chunk = rebuilt_content.chunks.filter(pos=target_chunk.pos).one()
+        self.assertIsNotNone(rebuilt_chunk)
+        self.assertNotEqual(target_chunk.url, rebuilt_chunk.url)
 
     def test_content_rebuild_unrecoverable(self):
         self.assertRaises(
