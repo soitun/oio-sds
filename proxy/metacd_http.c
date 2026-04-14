@@ -27,12 +27,14 @@ static struct path_parser_s *path_parser = NULL;
 static struct network_server_s *server = NULL;
 
 static struct grid_task_queue_s *admin_gtq = NULL;
-static struct grid_task_queue_s *upstream_gtq = NULL;
 static struct grid_task_queue_s *downstream_gtq = NULL;
+static struct grid_task_queue_s *ps_mgmt_gtq = NULL;
+static struct grid_task_queue_s *upstream_gtq = NULL;
 
 static GThread *admin_thread = NULL;
-static GThread *upstream_thread = NULL;
 static GThread *downstream_thread = NULL;
+static GThread *ps_mgmt_thread = NULL;
+static GThread *upstream_thread = NULL;
 
 static gboolean config_system = TRUE;
 static GSList *config_paths = NULL;
@@ -995,6 +997,7 @@ grid_main_action (void)
 	grid_task_queue_fire (admin_gtq);
 	grid_task_queue_fire (upstream_gtq);
 	grid_task_queue_fire (downstream_gtq);
+	grid_task_queue_fire (ps_mgmt_gtq);
 
 	if (!(admin_thread = grid_task_queue_run (admin_gtq, &err))) {
 		g_prefix_error (&err, "Admin thread startup failure: ");
@@ -1010,6 +1013,12 @@ grid_main_action (void)
 
 	if (!(downstream_thread = grid_task_queue_run (downstream_gtq, &err))) {
 		g_prefix_error (&err, "Downstream thread startup failure: ");
+		_main_error (err);
+		return;
+	}
+
+	if (!(ps_mgmt_thread = grid_task_queue_run (ps_mgmt_gtq, &err))) {
+		g_prefix_error (&err, "Process management thread startup failure: ");
 		_main_error (err);
 		return;
 	}
@@ -1066,6 +1075,7 @@ grid_main_specific_fini (void)
 	_stop_queue (&admin_gtq, &admin_thread);
 	_stop_queue (&upstream_gtq, &upstream_thread);
 	_stop_queue (&downstream_gtq, &downstream_thread);
+	_stop_queue (&ps_mgmt_gtq, &ps_mgmt_thread);
 
 	if (server) {
 		network_server_close_servers (server);
@@ -1518,11 +1528,15 @@ grid_main_configure (int argc, char **argv)
 	grid_task_queue_register (admin_gtq, 1,
 		(GDestroyNotify) _task_reload_nsinfo, NULL, NULL);
 
-	grid_task_queue_register (admin_gtq, 1,
+	// Do not run the process management task on the same thread as administrative
+	// task: the administrative tasks can take a long time, sometimes block for a
+	// few seconds. We don't want the watchdog to be blocked by them.
+	ps_mgmt_gtq = grid_task_queue_create("process_management");
+	grid_task_queue_register(ps_mgmt_gtq, 1,
 		(GDestroyNotify) _task_malloc_trim, NULL, NULL);
 
 	if (configure_watchdog()) {
-		grid_task_queue_register(admin_gtq, 1,
+		grid_task_queue_register(ps_mgmt_gtq, 1,
 			(GDestroyNotify) _task_watchdog, NULL, NULL);
 	}
 
