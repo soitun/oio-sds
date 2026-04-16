@@ -6,8 +6,11 @@ echo "deb [trusted=yes] http://last-public-ovh-pcs.snap.mirrors.ovh.net/ubuntu f
 echo "deb [trusted=yes] http://${DEB_SNAPSHOT}-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu focal main" >/etc/apt/sources.list.d/snapmirror-focal.list
 echo "deb [trusted=yes] http://${DEB_SNAPSHOT}-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu focal-updates main" >/etc/apt/sources.list.d/snapmirror-focal-updates.list
 
-# Disable the VM-provided repositories.
-sed -i -E -e 's/^(deb .*nova.clouds.archive.ubuntu.com.*)$/#\1/' /etc/apt/sources.list.d/* /etc/apt/sources.list
+# Disable the VM-provided repositories, use only the repos provided above
+sed -i -E \
+    -e 's/^(deb .*nova.clouds.archive.ubuntu.com.*)$/#\1/' \
+    -e 's/^(deb .*security.ubuntu.com.*)$/#\1/' \
+    /etc/apt/sources.list.d/* /etc/apt/sources.list
 
 # Docker repo for docker compose plugin should be removed after https://jira.ovhcloud.tools/browse/CORDEV-2545 completion
 sudo install -m 0755 -d /etc/apt/keyrings
