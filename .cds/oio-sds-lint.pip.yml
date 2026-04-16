@@ -14,6 +14,7 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           eval $(worker key install --env-git proj-ssh-openio)
           echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
+          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-security main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
           echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-updates main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
           apt-get update
           apt-get install -y python3-virtualenv
