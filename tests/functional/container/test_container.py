@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2015-2020 OpenIO SAS, as part of OpenIO SDS
 # Copyright (C) 2021-2026 OVH SAS
 #
@@ -38,6 +36,7 @@ from oio.common.constants import (
     OIO_DB_ENABLED,
     OIO_DB_FROZEN,
     OIO_DB_STATUS_NAME,
+    REQID_HEADER,
     VERSIONID_HEADER,
 )
 from oio.common.easy_value import boolean_value
@@ -92,16 +91,15 @@ def gen_names(width=8, depth=1):
         for c1 in range(width):
             for x in range(depth):
                 i, index = index, index + 1
-                yield i, "{0}/{1}/{2}plop".format(c0, c1, x)
+                yield i, f"{c0}/{c1}/{x}plop"
 
 
 class TestMeta2Containers(BaseTestCase):
     def setUp(self):
-        super(TestMeta2Containers, self).setUp()
+        super().setUp()
         self.ref = f"TestMeta2Containers-{random_container()}"
 
-    def __tearDown(self):
-        super(TestMeta2Containers, self).tearDown()
+    def tearDown(self):
         try:
             params = self.param_ref(self.ref)
             self.request(
@@ -118,6 +116,7 @@ class TestMeta2Containers(BaseTestCase):
             )
         except Exception as err:
             self.logger.debug("Failed to clean %s: %s", self.ref, err)
+        super().tearDown()
 
     def _create(self, params, code, autocreate=True):
         headers = {}
@@ -155,7 +154,7 @@ class TestMeta2Containers(BaseTestCase):
 
     def test_mass_delete(self):
         containers = []
-        for i in range(50):
+        for _ in range(50):
             container = f"test_mass_delete-{random_container()}"
             param = self.param_ref(container)
             self._create(param, 201)
@@ -178,16 +177,23 @@ class TestMeta2Containers(BaseTestCase):
             self.assertNotIn(descr[0], containers)
 
     def test_create_many(self):
+        ct1 = f"ct-{random_str(4)}"
+        ct2 = f"ct-{random_str(4)}"
         params = {"acct": self.account}
-        headers = {}
-        headers["x-oio-action-mode"] = "autocreate"
-        headers["Content-Type"] = "application/json"
+        headers = {
+            "x-oio-action-mode": "autocreate",
+            "Content-Type": "application/json",
+            REQID_HEADER: request_id("test-create-many-"),
+        }
 
         # Create different uploads
-        data = (
-            '{"containers":'
-            + '[{"name":"test1","properties":{},"system":{}},'
-            + '{"name":"test2","properties":{},"system":{}}]}'
+        data = json.dumps(
+            {
+                "containers": [
+                    {"name": ct1, "properties": {}, "system": {}},
+                    {"name": ct2, "properties": {}, "system": {}},
+                ]
+            }
         )
         resp = self.request(
             "POST",
@@ -200,15 +206,19 @@ class TestMeta2Containers(BaseTestCase):
         data = self.json_loads(resp.data)["containers"]
         self.assertEqual(data[0]["status"], 201)
         self.assertEqual(data[1]["status"], 201)
-        self._delete(self.param_ref("test1"))
-        self._delete(self.param_ref("test2"))
+        self._delete(self.param_ref(ct1))
+        self._delete(self.param_ref(ct2))
 
         # Create same upload
-        data = (
-            '{"containers":'
-            + '[{"name":"test1","properties":{},"system":{}},'
-            + '{"name":"test1","properties":{},"system":{}}]}'
+        data = json.dumps(
+            {
+                "containers": [
+                    {"name": ct1, "properties": {}, "system": {}},
+                    {"name": ct1, "properties": {}, "system": {}},
+                ]
+            }
         )
+        headers[REQID_HEADER] = request_id("test-create-many-")
         resp = self.request(
             "POST",
             self.url_container("create_many"),
@@ -220,15 +230,17 @@ class TestMeta2Containers(BaseTestCase):
         data = self.json_loads(resp.data)["containers"]
         self.assertEqual(data[0]["status"], 201)
         self.assertEqual(data[1]["status"], 433)
-        self._delete(self.param_ref("test1"))
+        self._delete(self.param_ref(ct1))
 
         # Empty body should be answered with an error
+        headers[REQID_HEADER] = request_id("test-create-many-")
         resp = self.request(
             "POST", self.url_container("create_many"), params=params, headers=headers
         )
         self.assertEqual(resp.status, 400)
 
         # Create with  missing name
+        headers[REQID_HEADER] = request_id("test-create-many-")
         data = '{"containers":' + '[{"properties":{},"system":{}}' + "]}"
         resp = self.request(
             "POST",
@@ -240,6 +252,7 @@ class TestMeta2Containers(BaseTestCase):
         self.assertEqual(resp.status, 400)
 
         # Send a non conform json (missing '{')
+        headers[REQID_HEADER] = request_id("test-create-many-")
         data = '{"containers":' + '["name":"test","properties":{},"system":{}}' + "]}"
         resp = self.request(
             "POST",
@@ -251,6 +264,7 @@ class TestMeta2Containers(BaseTestCase):
         self.assertEqual(resp.status, 400)
 
         # Don't send account
+        headers[REQID_HEADER] = request_id("test-create-many-")
         data = '{"containers":' + '[{"name":"test1","properties":{},"system":{}}' + "]}"
         resp = self.request(
             "POST", self.url_container("create_many"), data=data, headers=headers
@@ -258,6 +272,7 @@ class TestMeta2Containers(BaseTestCase):
         self.assertEqual(resp.status, 400)
 
         # Send empty array
+        headers[REQID_HEADER] = request_id("test-create-many-")
         data = '{"containers":[]}'
         resp = self.request(
             "POST", self.url_container("create_many"), data=data, headers=headers
@@ -481,13 +496,13 @@ class TestMeta2Containers(BaseTestCase):
         # any missing field
         for i in ("type", "id", "hash", "pos", "size", "content"):
 
-            def remove_field(x):
+            def remove_field(x, field):
                 x = dict(x)
-                del x[i]
+                del x[field]
                 return x
 
             self._raw_insert(
-                self.ref, [remove_field(x) for x in chunks], exception=exc.BadRequest
+                self.ref, [remove_field(x, i) for x in chunks], exception=exc.BadRequest
             )
 
         # bad size
@@ -588,7 +603,7 @@ class TestMeta2Containers(BaseTestCase):
         headers["x-oio-action-mode"] = "autocreate"
         headers["Content-Type"] = "application/json"
         if status:
-            data = '{"properties":{},' + '"system":{"sys.status": "%d"}}' % status
+            data = json.dumps({"properties": {}, "system": {"sys.status": f"{status}"}})
         else:
             data = None
             status = OIO_DB_ENABLED
@@ -781,7 +796,7 @@ class TestMeta2Containers(BaseTestCase):
         purge_and_check(1)
 
         # many contents
-        for i in range(50):
+        for _ in range(50):
             self._create_content("content")
             self._create_content("content2")
         purge_and_check(6)
@@ -790,7 +805,7 @@ class TestMeta2Containers(BaseTestCase):
         # give account and meta2 time to catch their breath
         wait = False
         cluster = ConscienceClient({"namespace": self.ns})
-        for i in range(10):
+        for _ in range(10):
             try:
                 for service in cluster.all_services("account"):
                     # Score depends only on CPU usage.
@@ -804,7 +819,7 @@ class TestMeta2Containers(BaseTestCase):
                             wait = True
                             continue
                     if not wait:
-                        return
+                        break
             except exc.OioException:
                 pass
             wait = False
@@ -870,7 +885,7 @@ class TestMeta2Containers(BaseTestCase):
 
         # many contents
         for i in range(80):
-            self._create_content("content%02d" % i)
+            self._create_content(f"content{i:02d}")
         flush_and_check(truncated=True, objects=16, usage=16384)
         flush_and_check()
 
@@ -1153,18 +1168,17 @@ class TestMeta2Containers(BaseTestCase):
 
 class TestMeta2Contents(BaseTestCase):
     def setUp(self):
-        super(TestMeta2Contents, self).setUp()
+        super().setUp()
         self.ref = f"TestMeta2Contents-{random_container()}"
 
     @classmethod
     def setUpClass(cls):
-        super(TestMeta2Contents, cls).setUpClass()
+        super().setUpClass()
         cls._cls_mpu_consumer = cls._register_consumer(topic="oio-delete-mpu-parts")
         cls._cls_reload_meta()
         cls._cls_reload_proxy()
 
     def tearDown(self):
-        super(TestMeta2Contents, self).tearDown()
         try:
             params = self.param_ref(self.ref)
             self.request(
@@ -1181,6 +1195,7 @@ class TestMeta2Contents(BaseTestCase):
             )
         except Exception:
             pass
+        super().tearDown()
 
     def valid_chunks(self, tab, end_user_request):
         self.assertIsInstance(tab, list)
@@ -1304,11 +1319,11 @@ class TestMeta2Contents(BaseTestCase):
         chunks = obj_meta["chunks"]
         if len(chunks) < count_broken + 1:
             self.skipTest(
-                "Must run with a storage policy requiring more than %d chunk"
-                % count_broken
+                "Must run with a storage policy requiring "
+                f"more than {count_broken} chunk"
             )
         elif len(self.conf["services"]["rawx"]) < len(chunks) + 1:
-            self.skipTest("Not enough rawx services (%d+1 required)" % len(chunks))
+            self.skipTest(f"Not enough rawx services ({len(chunks)}+1 required)")
 
         # Extract one chunk from the list, keep it for later
         broken = [chunks.pop() for _ in range(count_broken)]
@@ -1791,12 +1806,12 @@ class TestMeta2Contents(BaseTestCase):
         purge_and_check(1)
 
         # many contents
-        for i in range(100):
+        for _ in range(100):
             self._create_content(path)
         purge_and_check(3)
 
         # other contents
-        for i in range(5):
+        for _ in range(5):
             self._create_content("content")
         purge_and_check(8)
 
