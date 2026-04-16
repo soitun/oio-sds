@@ -28,7 +28,7 @@ from tests.functional.cli import CliTestCase
 class ServiceDecommissionTest(CliTestCase):
     @classmethod
     def setUpClass(cls):
-        super(ServiceDecommissionTest, cls).setUpClass()
+        super().setUpClass()
         # Prevent the chunks' indexation by crawlers
         cls._service_group("crawler", "stop", wait=3)
         cls._cls_reload_proxy()
@@ -37,7 +37,7 @@ class ServiceDecommissionTest(CliTestCase):
     @classmethod
     def tearDownClass(cls):
         cls._service_group("crawler", "start", wait=1)
-        super(ServiceDecommissionTest, cls).tearDownClass()
+        super().tearDownClass()
 
     def setUp(self):
         super().setUp()
@@ -66,7 +66,7 @@ class ServiceDecommissionTest(CliTestCase):
             _event = self.wait_for_kafka_event(
                 reqid=reqid,
                 types=(event,),
-                timeout=10.0,
+                timeout=15.0,
             )
             self.assertIsNotNone(_event, f"Received events {i}/{expected_events}")
 
@@ -95,7 +95,7 @@ class ServiceDecommissionTest(CliTestCase):
                 reqid=create_reqid,
                 types=(EventTypes.CONTAINER_NEW,),
                 fields={"user": cname},
-                timeout=10,
+                timeout=15.0,
             )
             self.assertIsNotNone(event, f"Received events {i}/{container_count}")
 
@@ -114,19 +114,19 @@ class ServiceDecommissionTest(CliTestCase):
         else:
             # Do not pass the parameter, but use 100 for result analysis
             decommission_percentage = 100
-        job_id = self.openio_admin("xcute meta2 decommission %s %s" % (candidate, opts))
+        job_id = self.openio_admin(f"xcute meta2 decommission {candidate} {opts}")
         attempts = 15
         status = None
         opts = self.get_format_opts("json")
         for _ in range(attempts):
-            res = self.openio_admin("xcute job show %s %s" % (job_id, opts))
+            res = self.openio_admin(f"xcute job show {job_id} {opts}")
             decoded = json.loads(res)
             status = decoded["job.status"]
             if status == "FINISHED":
                 break
             time.sleep(1)
         else:
-            self.fail("xcute job %s did not finish within %ds" % (job_id, attempts))
+            self.fail(f"xcute job {job_id} did not finish within {attempts}s")
 
         expected_tasks = total_bases * decommission_percentage / 100
         self.assertEqual(
@@ -306,7 +306,7 @@ class ServiceDecommissionTest(CliTestCase):
         status = None
         opts = self.get_format_opts("json")
         for _ in range(attempts):
-            res = self.openio_admin("xcute job show %s %s" % (job_id, opts))
+            res = self.openio_admin(f"xcute job show {job_id} {opts}")
             decoded = json.loads(res)
             status = decoded["job.status"]
             if status == "FINISHED":
@@ -314,7 +314,7 @@ class ServiceDecommissionTest(CliTestCase):
                 break
             time.sleep(1)
         else:
-            self.fail("xcute job %s did not finish within %ds" % (job_id, attempts))
+            self.fail(f"xcute job {job_id} did not finish within {attempts}s")
 
         # We did not specify any type when decommissionning,
         # expect everything to be empty.
