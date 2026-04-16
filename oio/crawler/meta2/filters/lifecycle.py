@@ -478,18 +478,18 @@ class Lifecycle(Meta2Filter):
             # Do not return an error to let next filters to process copy
             return self.app(env, cb)
         except (BucketBudgetReached, ContainerPassBudgetReached) as exc:
-            self.logger.debug(
-                "Budget reached for container %s (%s): %s",
-                self.context.root_container,
-                basename(meta2db.path),
-                exc,
-            )
             if isinstance(exc, BucketBudgetReached):
                 self.bucket_budget_reached += 1
-                budget_reached = "bucket"
+                budget_reached = (
+                    f"bucket budget reached: {exc}, container {meta2db.cid} skipped"
+                )
             elif isinstance(exc, ContainerPassBudgetReached):
                 self.container_budget_reached += 1
-                budget_reached = "container"
+                budget_reached = (
+                    f"container pass budget reached: "
+                    f"{self.events_produced_for_container}/"
+                    f"{self.container_budget_per_pass}"
+                )
         except OioUnhealthyKafkaClusterError as exc:
             self.logger.warning(
                 "Unhealthy kafka cluster, lifecycle operation on hold: %s", exc
@@ -521,16 +521,23 @@ class Lifecycle(Meta2Filter):
             _stat = f" ({_stat})"
 
         if budget_reached:
-            budget_reached = f" (budget: {budget_reached})"
-
-        self.logger.info(
-            "Container %s (%s) processed, %d action(s) have been generated%s%s",
-            self.context.root_container,
-            basename(self.context.path),
-            self.events_produced_for_container,
-            _stat,
-            budget_reached,
-        )
+            self.logger.warning(
+                "Container %s (%s) partially processed, "
+                "%d action(s) have been generated%s, %s",
+                self.context.root_container,
+                basename(self.context.path),
+                self.events_produced_for_container,
+                _stat,
+                budget_reached,
+            )
+        else:
+            self.logger.info(
+                "Container %s (%s) processed, %d action(s) have been generated%s",
+                self.context.root_container,
+                basename(self.context.path),
+                self.events_produced_for_container,
+                _stat,
+            )
         self.successes += 1
         return self.app(env, cb)
 

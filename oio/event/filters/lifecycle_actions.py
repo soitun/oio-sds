@@ -336,6 +336,10 @@ class LifecycleActions(Filter):
                     part_number_int = int(part_number)
                     if part_number_int < 1 or part_number_int > 10000:
                         raise ValueError("part number should be between 1 and 10000")
+                except ValueError:
+                    # Not a part of the MPU, skip
+                    continue
+                try:
                     part_name = obj["name"]
                     object_size = obj.get("size", None)
                     policy = obj.get("policy", None)
@@ -347,8 +351,13 @@ class LifecycleActions(Filter):
                     part_context.event.data["version"] = version
                     part_context.size = object_size
                     self._process_transition(part_context, policy)
-                except ValueError:
-                    # Ignore this object (not a part of the MPU)
+                except ValueError as exc:
+                    self.logger.warning(
+                        "Part %s skipped during transition (bucket=%s, reason=%s)",
+                        obj["name"],
+                        context.bucket,
+                        exc,
+                    )
                     continue
             truncated = boolean_value(headers.get("x-oio-list-truncated"))
             if truncated:
@@ -425,6 +434,13 @@ class LifecycleActions(Filter):
             return self.app(env, cb)
 
         action_type = None
+        if context.action in ("Expiration", "NoncurrentVersionExpiration"):
+            action_type = LifecycleAction.DELETE
+        elif context.action in ("Transition", "NoncurrentVersionTransition"):
+            action_type = LifecycleAction.TRANSITION
+        elif context.action == "AbortIncompleteMultipartUpload":
+            action_type = LifecycleAction.ABORT_MPU
+
         try:
             # Check if given object version still exists
             obj_meta = self.content_client.content_get_properties(
@@ -454,10 +470,8 @@ class LifecycleActions(Filter):
 
             self.logger.debug("Processing started")
             if context.action in ("Expiration", "NoncurrentVersionExpiration"):
-                action_type = LifecycleAction.DELETE
                 self._process_expiration(context, is_mpu)
             elif context.action in ("Transition", "NoncurrentVersionTransition"):
-                action_type = LifecycleAction.TRANSITION
                 upload_id = metadata.get(UPLOAD_ID, None)
                 # Transition parts if manifest
                 # Parts are transitioned before manifest so that if there is an
@@ -468,7 +482,6 @@ class LifecycleActions(Filter):
                 self._process_transition(context, policy)
 
             elif context.action == "AbortIncompleteMultipartUpload":
-                action_type = LifecycleAction.ABORT_MPU
                 self._process_abort_mpu(context)
             else:
                 self.logger.error(
@@ -480,19 +493,40 @@ class LifecycleActions(Filter):
                 self._log_event(context)
 
         except NotFound:
-            # The action should have already been processed
-            self.logger.debug(
-                "object %s with version %s not found in container %s",
+            self.logger.warning(
+                "Object %s with version %s not found in container %s "
+                "(action=%s, bucket=%s)",
                 context.path,
                 context.version,
                 context.container,
+                context.action,
+                context.bucket,
             )
+            self.metrics.increment_counter(
+                context.run_id,
+                context.account,
+                context.bucket,
+                context.container,
+                LifecycleStep.SKIPPED,
+                action_type,
+            )
+            return self.app(env, cb)
         except (
             DeleteMarkerExists,
             Forbidden,
             RecentVersionExists,
             TransitionSamePolicy,
-        ):
+        ) as exc:
+            self.logger.info(
+                "Object %s with version %s skipped in container %s "
+                "(action=%s, bucket=%s, reason=%s)",
+                context.path,
+                context.version,
+                context.container,
+                context.action,
+                context.bucket,
+                type(exc).__name__,
+            )
             self.metrics.increment_counter(
                 context.run_id,
                 context.account,
