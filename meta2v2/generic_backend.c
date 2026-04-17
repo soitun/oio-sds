@@ -421,12 +421,8 @@ _stmt_apply_GV_parameter(sqlite3_stmt *stmt, int pos, GVariant *p)
 	}
 
 	if (g_variant_is_of_type(p, G_VARIANT_TYPE_BYTESTRING)) {
-		if (g_variant_get_size(p) == 0) {
-			sqlite3_bind_zeroblob(stmt, pos, -1);
-		} else {
-			sqlite3_bind_blob(stmt, pos, g_variant_get_data(p),
-					g_variant_get_size(p), NULL);
-		}
+		sqlite3_bind_blob(stmt, pos, g_variant_get_data(p),
+				g_variant_get_size(p), NULL);
 		return NULL;
 	}
 
