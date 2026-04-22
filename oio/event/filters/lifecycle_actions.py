@@ -283,6 +283,7 @@ class LifecycleActions(Filter):
                 limit=self.limit_listing,
                 marker=marker,
                 prefix=f"{context.path}/",
+                reqid=context.reqid,
             )
             paths = []
             for obj in content_list["objects"]:
@@ -328,6 +329,7 @@ class LifecycleActions(Filter):
                 limit=self.limit_listing,
                 marker=marker,
                 prefix=prefix,
+                reqid=context.reqid,
             )
             for obj in content_list["objects"]:
                 # What's after the prefix should be an integer (the part number)
