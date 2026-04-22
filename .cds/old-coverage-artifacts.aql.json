@@ -3,6 +3,60 @@
         {
             "aql": {
                 "items.find": {
+                    "repo": "pu-objectstorage-default-cds-snapshot",
+                    "$and": [
+                        {
+                            "path": {"$match": "*OPENIO/swift"}
+                        },
+                        {
+                            "type": "folder"
+                        },
+                        {
+                            "created": {"$lt": "${ddate}"}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "aql": {
+                "items.find": {
+                    "repo": "pu-objectstorage-default-cds-snapshot",
+                    "$and": [
+                        {
+                            "path": {"$match": "*OPENIO/oio-sds"}
+                        },
+                        {
+                            "type": "folder"
+                        },
+                        {
+                            "created": {"$lt": "${ddate}"}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "aql": {
+                "items.find": {
+                    "repo": "pu-objectstorage-default-cds-snapshot",
+                    "$and": [
+                        {
+                            "path": {"$match": "*OPENIO/s3-replicator"}
+                        },
+                        {
+                            "type": "folder"
+                        },
+                        {
+                            "created": {"$lt": "${ddate}"}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "aql": {
+                "items.find": {
                     "repo": "pu-objectstorage-default-static",
                     "$and": [
                         {
