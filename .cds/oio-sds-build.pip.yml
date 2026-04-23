@@ -78,15 +78,13 @@ jobs:
           #!/bin/bash
           eval $(worker key install --env-git proj-ssh-openio)
           . .cds/versions
-          . .cds/configure-repositories.sh
           export DEBIAN_FRONTEND=noninteractive
-          apt update
-          apt install -y ${PYTHON_PACKAGE}
+          apt-get update
+          apt-get install -y python3-virtualenv virtualenv
           # Configure environment
-          echo "export PATH=/opt/${PYTHON_PACKAGE}/bin:$PATH" > $HOME/oio-env.sh
           echo "export PIP_INDEX_URL=https://${PYPI_SNAPSHOT}-pypi.snap.mirrors.ovh.net/simple/" >> $HOME/oio-env.sh
           source $HOME/oio-env.sh
-          /opt/${PYTHON_PACKAGE}/bin/python3 -m venv $HOME/oiovenv
+          python3 -m venv $HOME/oiovenv
           cat << EOF > $HOME/oiovenv/pip.conf
           [global]
           index-url = https://${PYPI_SNAPSHOT}-pypi.snap.mirrors.ovh.net/simple/

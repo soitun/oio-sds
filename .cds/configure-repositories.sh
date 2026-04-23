@@ -8,15 +8,14 @@ echo "deb [trusted=yes] http://${DEB_SNAPSHOT}-public.canonical.ubuntu.archive.s
 
 # Disable the VM-provided repositories, use only the repos provided above
 sed -i -E \
-    -e 's/^(deb .*nova.clouds.archive.ubuntu.com.*)$/#\1/' \
-    -e 's/^(deb .*security.ubuntu.com.*)$/#\1/' \
-    /etc/apt/sources.list.d/* /etc/apt/sources.list
+    -e 's/^(deb .*\.ubuntu\.com.*)$/#\1/' \
+    /etc/apt/sources.list.d/* /etc/apt/sources.list || true
 
 # Docker repo for docker compose plugin should be removed after https://jira.ovhcloud.tools/browse/CORDEV-2545 completion
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
 echo \
     "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
   "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" |
-    sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    tee /etc/apt/sources.list.d/docker.list >/dev/null
