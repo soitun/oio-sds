@@ -488,12 +488,7 @@ kafka_cluster_health_max_lag = 2
 # Percent of available space is less than 5
 kafka_cluster_health_min_available_space = 5
 
-# Order from highest to lowest
-storage_class.EXPRESS_ONEZONE = EC:-2,SINGLE
-storage_class.STANDARD = EC21,TWOCOPIES:0,EC21:102400,ANY-E93
-storage_class.STANDARD_IA = THREECOPIES
-storage_class.GLACIER = ECX21
-storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+${STORAGE_CLASSES}
 
 [filter:logger]
 use = egg:oio#logger
@@ -537,11 +532,7 @@ boto_profile = keystone
 # boto_endpoint_url = http://s3.regionone.io.lo.team-swift.ovh:5000
 policy_manifest = SINGLE
 # Note, we could add only restorable classes, but this will simplify indus integration
-storage_class.EXPRESS_ONEZONE = EC:-2,SINGLE
-storage_class.STANDARD = EC21,TWOCOPIES:0,EC21:102400,ANY-E93
-storage_class.STANDARD_IA = THREECOPIES
-storage_class.GLACIER = ECX21
-storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+${STORAGE_CLASSES}
 
 [filter:batch_replicator_creator]
 use = egg:oio#batch_replicator_creator
@@ -1703,11 +1694,7 @@ use = egg:oio#early_delete_detection
 storage_class_minimal_duration.STANDARD_IA = 2592000
 storage_class_minimal_duration.GLACIER = 2592000
 storage_class_minimal_duration.DEEP_ARCHIVE = 2592000
-storage_class.STANDARD = EC21,THREECOPIES
-storage_class.STANDARD_IA = TWOCOPIES
-storage_class.ONEZONE_IA = SINGLE
-storage_class.GLACIER = THREECOPIES_FR
-storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+${STORAGE_CLASSES}
 redis_host = ${REDIS_IP}:${REDIS_PORT}
 
 [filter:preserve]
@@ -1857,11 +1844,7 @@ pipeline = lifecycle_actions ${PRESERVE}
 [filter:lifecycle_actions]
 use = egg:oio#lifecycle_actions
 redis_host = ${REDIS_IP}:${REDIS_PORT}
-storage_class.STANDARD = EC21,THREECOPIES:0,EC21:100000
-storage_class.STANDARD_IA = TWOCOPIES
-storage_class.ONEZONE_IA = SINGLE
-storage_class.GLACIER = THREECOPIES_FR
-storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+${STORAGE_CLASSES}
 skip_data_move_storage_classes.STANDARD = ONEZONE_IA, GLACIER_IR
 
 [filter:preserve]
@@ -1912,11 +1895,7 @@ pipeline = archive_restore ${PRESERVE}
 [filter:archive_restore]
 use = egg:oio#archive_restore
 redis_host = ${REDIS_IP}:${REDIS_PORT}
-storage_class.STANDARD = EC21,THREECOPIES
-storage_class.STANDARD_IA = TWOCOPIES
-storage_class.ONEZONE_IA = SINGLE
-storage_class.GLACIER = THREECOPIES_FR
-storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+${STORAGE_CLASSES}
 restorable_storage_classes = DEEP_ARCHIVE
 restore_delay.DEEP_ARCHIVE = 10,180,30
 
@@ -2127,8 +2106,7 @@ amqp_durable = True
 amqp_auto_delete = False
 
 # Storage classes
-storage_class.GLACIER = SINGLE,TWOCOPIES
-storage_class.STANDARD = THREECOPIES,EC
+${STORAGE_CLASSES}
 """
 
 template_billing_early_deletion_agent_service = """
@@ -2428,7 +2406,14 @@ HASH_DEPTH = "hash_depth"
 KAFKA_ENDPOINT = "kafka_endpoint"
 KAFKA_METRICS_ENDPOINTS = "kafka_metrics_endpoints"
 LIFECYCLE_SHORTEN_DAYS_FACTOR = "shorten_days_dates_factor"
-
+STORAGE_CLASSES = """
+# Order from highest to lowest
+storage_class.EXPRESS_ONEZONE = EC:-2,SINGLE
+storage_class.STANDARD = EC21,TWOCOPIES:0,EC21:102400,ANY-E93
+storage_class.STANDARD_IA = THREECOPIES
+storage_class.GLACIER = ECX21
+storage_class.DEEP_ARCHIVE = THREECOPIES_DA
+"""
 
 defaults = {
     "NS": "OPENIO",
@@ -2657,6 +2642,7 @@ def generate(options):
         TLS_KEY_FILE=TLS_KEY_FILE,
         WANT_SERVICE_ID=want_service_id,
         REDIS_PORT=6379,
+        STORAGE_CLASSES=STORAGE_CLASSES,
     )
     ENV["env.HOME"] = HOME
 
