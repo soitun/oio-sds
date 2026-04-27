@@ -180,7 +180,7 @@ class CheckpointCollector:
             if not container.endswith(MULTIUPLOAD_SUFFIX):
                 # Processing main container
                 if self._with_time_bypass and not boolean_value(
-                    props.get(M2_PROP_LIFECYCLE_TIME_BYPASS), False
+                    props["system"].get(M2_PROP_LIFECYCLE_TIME_BYPASS), False
                 ):
                     raise BucketTimeBypassDisabled()
                 self._upload_configuration(account, bucket, props)
@@ -294,7 +294,9 @@ class CheckpointCollector:
         except BucketAlreadyProcessed:
             self._logger.debug("Bucket already processed")
         except Exception as exc:
-            self._logger.error("Failed to process bucket, reason: %s", exc)
+            self._logger.error(
+                "Failed to process bucket, reason: %s: %s", type(exc), exc
+            )
             cid = cid_from_name(account, bucket)
             self._increment_snapshot_counter(
                 account, bucket, cid, LifecycleStep.SUBMIT_ERROR
@@ -372,7 +374,7 @@ def make_arg_parser():
         "--verbose", "-v", action="store_true", help="More verbose output"
     )
     parser.add_argument(
-        "--run-id", help="Run identifier", default=str(Timestamp().timestamp)
+        "--run-id", help="Run identifier", default=str(int(Timestamp()))
     )
     parser.add_argument(
         "--only-with-time-bypass",
@@ -401,13 +403,16 @@ def main():
     if args.coverage:
         initialize_coverage(logger, "checkpoint-collector")
 
-    with get_oio_log_context(run_id=args.run_id):
+    # If any dots are in the run_id, some regex will not work anymore.
+    run_id = args.run_id.replace(".", "")
+
+    with get_oio_log_context(run_id=run_id):
         logger.info("Starting")
         collector = CheckpointCollector(
             conf,
             logger,
             "lifecycle",
-            args.run_id,
+            run_id,
             with_time_bypass=args.only_with_time_bypass,
         )
         collector.run()

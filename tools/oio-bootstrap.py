@@ -485,7 +485,8 @@ lifecycle_configuration_backup_bucket = internal_lifecycle
 use_kafka_health_check = True
 kafka_cluster_health_topics = oio-lifecycle
 kafka_cluster_health_max_lag = 2
-kafka_cluster_health_min_available_space = 5 # percent of available space is less than 5
+# Percent of available space is less than 5
+kafka_cluster_health_min_available_space = 5
 
 # Order from highest to lowest
 storage_class.EXPRESS_ONEZONE = EC:-2,SINGLE
