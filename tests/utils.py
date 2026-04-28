@@ -386,7 +386,7 @@ class CommonTestCase(unittest.TestCase):
         if proxy is not None:
             self._storage_kwargs["proxy_url"] = proxy
 
-    def _wait_kafka_partition_assignment(self, kafka_consumer=None):
+    def _wait_kafka_partition_assignment(self, kafka_consumer=None, timeout=30.0):
         if not kafka_consumer:
             kafka_consumer = self._cls_kafka_consumer
 
@@ -394,7 +394,13 @@ class CommonTestCase(unittest.TestCase):
             return
 
         assigned_partitions = []
+        deadline = time.time() + timeout
         while not assigned_partitions:
+            if time.time() > deadline:
+                self.fail(
+                    f"Kafka partition assignment not received within "
+                    f"{timeout}s for consumer {kafka_consumer}"
+                )
             kafka_consumer._client.poll(1.0)
             assigned_partitions = kafka_consumer._client.assignment()
 
