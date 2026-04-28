@@ -41,7 +41,7 @@ class TestFilterPolicyTransition(BaseTestCase):
     def setUp(self):
         super().setUp()
         # Create container
-        self.container = "policy-transition"
+        self.container = f"policy-transition-{time.time()}"
         self.storage.container.container_create(self.account, self.container)
         self.clean_later(self.container)
 

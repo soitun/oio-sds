@@ -1,5 +1,5 @@
 # Copyright (C) 2015-2020 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2021-2025 OVH SAS
+# Copyright (C) 2021-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -52,7 +52,10 @@ def get_root_container_from_event(event):
     container = event.url.get("user")
     if container is None:
         raise ValueError("Unable to extract container from event")
-    if "shard" in event.url:
+    account = event.url.get("account", "")
+    # Some events (like lifecycle) are created without the "shard" part, but are related
+    # to a shard container.
+    if "shard" in event.url or account.startswith(SHARDING_ACCOUNT_PREFIX):
         container = container.rsplit("-", 3)[0]
     return container
 

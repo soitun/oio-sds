@@ -510,16 +510,23 @@ class TestLifecycleCrawler(BaseTestCase):
                 self.storage.blob_client.chunk_head(chunk.get("real_url", chunk["url"]))
             )
 
-        # Ensure parts had been removed
+        # Ensure parts had been removed. As parts are deleted asynchronously, we
+        # need to let some time (covered with an active timeout).
         for part_name, part_version in expect.parts:
-            self.assertRaises(
-                NoSuchObject,
-                self.storage.object_get_properties,
-                self.account,
-                self.container_segment,
-                part_name,
-                version=part_version,
-            )
+            deadline = time.time() + 30.0
+            while True:
+                try:
+                    self.storage.object_get_properties(
+                        self.account,
+                        self.container_segment,
+                        part_name,
+                        version=part_version,
+                    )
+                except NoSuchObject:
+                    break  # Part has been deleted
+                if time.time() > deadline:
+                    self.fail(f"Part {part_name}/{part_version} not deleted")
+                time.sleep(0.5)
 
     def _validate_delete_marker_action(self, expect):
         # Ensure a delete marker had been added
@@ -4227,7 +4234,7 @@ class TestLifecycleCrawlerUseKafkaHealth(TestLifecycleCrawler):
             )
 
 
-class TestLifecycleCrawlerUseHKafkaHelathWithSharding(
+class TestLifecycleCrawlerUseHKafkaHealthWithSharding(
     TestLifecycleCrawlerWithSharding, TestLifecycleCrawlerUseKafkaHealth
 ):
     def setUp(self):

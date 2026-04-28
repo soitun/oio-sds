@@ -182,18 +182,10 @@ class TestFilterLifecycleActions(TestFilterLifecycleActionsCommon):
         self.assertIn("policy", props)
         self.assertEqual("SINGLE", props["policy"])
 
-    def test_transition_mpu(self):
-        self.object = "policy-transition/obj-mpu"
-        reqid = request_id("lifecycle-actions-")
-        _, parts = self._create_mpu(nb_parts=3, size=10)
-        event = self._create_event(
-            self.object,
-            reqid=reqid,
-        )
-
-        self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
-        self.lifecycle_actions.process(event, None)
-
+    def _check_mpu_transition(self, parts, reqid):
+        """
+        Check that manifest and all parts have been transitioned.
+        """
         evt = self.wait_for_kafka_event(
             reqid=reqid,
             types=(EventTypes.CONTENT_TRANSITIONED),
@@ -223,6 +215,20 @@ class TestFilterLifecycleActions(TestFilterLifecycleActionsCommon):
             # policy changed from TWOCOPIES to SINGLE
             self.assertIn("policy", props)
             self.assertEqual("SINGLE", props["policy"])
+
+    def test_transition_mpu(self):
+        self.object = "policy-transition/obj-mpu"
+        reqid = request_id("lifecycle-actions-")
+        _, parts = self._create_mpu(nb_parts=3, size=10)
+        event = self._create_event(
+            self.object,
+            reqid=reqid,
+        )
+
+        self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
+        self.lifecycle_actions.process(event, None)
+
+        self._check_mpu_transition(parts, reqid)
 
     def test_transition_mpu_lots_of_parts(self):
         self.object = "policy-transition/obj-mpu"
@@ -236,35 +242,61 @@ class TestFilterLifecycleActions(TestFilterLifecycleActionsCommon):
         self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
         self.lifecycle_actions.process(event, None)
 
-        evt = self.wait_for_kafka_event(
-            reqid=reqid,
-            types=(EventTypes.CONTENT_TRANSITIONED),
-            fields={"path": self.object},
-            data_fields={"target_policy": "SINGLE"},
-        )
-        self.assertIsNotNone(evt)
+        self._check_mpu_transition(parts, reqid)
 
-        props = self.storage.object_get_properties(
-            self.account, self.container, self.object, version=self.obj_meta["version"]
-        )
-        # policy changed from TWOCOPIES to SINGLE
-        self.assertIn("policy", props)
-        self.assertEqual("SINGLE", props["policy"])
+    def test_transition_mpu_sharding_root_only(self):
+        """
+        Transition MPU when only the root container is sharded.
+        """
+        self.object = "policy-transition/obj-mpu-shard-root"
+        reqid = request_id("lifecycle-actions-")
+        _, parts = self._create_mpu(nb_parts=3, size=10)
 
-        for el in parts:
-            evt = self.wait_for_kafka_event(
-                reqid=reqid,
-                types=(EventTypes.CONTENT_TRANSITIONED),
-                fields={"path": el["name"]},
-                data_fields={"target_policy": "SINGLE"},
-            )
-            self.assertIsNotNone(evt)
-            props = self.storage.object_get_properties(
-                self.account, f"{self.container}{MULTIUPLOAD_SUFFIX}", el["name"]
-            )
-            # policy changed from TWOCOPIES to SINGLE
-            self.assertIn("policy", props)
-            self.assertEqual("SINGLE", props["policy"])
+        # Shard only the root container
+        self.shard_container(self.container)
+
+        event = self._create_event(self.object, reqid=reqid)
+        self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
+        self.lifecycle_actions.process(event, None)
+
+        self._check_mpu_transition(parts, reqid)
+
+    def test_transition_mpu_sharding_segments_only(self):
+        """
+        Transition MPU when only the +segments container is sharded.
+        """
+        self.object = "policy-transition/obj-mpu-shard-seg"
+        reqid = request_id("lifecycle-actions-")
+        _, parts = self._create_mpu(nb_parts=3, size=10)
+
+        # Shard only the segments container
+        container_segment = f"{self.container}{MULTIUPLOAD_SUFFIX}"
+        self.shard_container(container_segment)
+
+        event = self._create_event(self.object, reqid=reqid)
+        self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
+        self.lifecycle_actions.process(event, None)
+
+        self._check_mpu_transition(parts, reqid)
+
+    def test_transition_mpu_sharding_both(self):
+        """
+        Transition MPU when both root and +segments are sharded.
+        """
+        self.object = "policy-transition/obj-mpu-shard-both"
+        reqid = request_id("lifecycle-actions-")
+        _, parts = self._create_mpu(nb_parts=3, size=10)
+
+        # Shard both containers
+        container_segment = f"{self.container}{MULTIUPLOAD_SUFFIX}"
+        self.shard_container(self.container)
+        self.shard_container(container_segment)
+
+        event = self._create_event(self.object, reqid=reqid)
+        self.lifecycle_actions = LifecycleActions(app=self.app, conf=self.conf)
+        self.lifecycle_actions.process(event, None)
+
+        self._check_mpu_transition(parts, reqid)
 
     def test_transition_skip_copy(self):
         self.object = "policy-transition-skip/obj"

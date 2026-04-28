@@ -48,6 +48,8 @@ from oio.event.evob import (
     EventError,
     EventTypes,
     RetryableEventError,
+    get_account_from_event,
+    get_root_container_from_event,
 )
 from oio.event.filters.base import Filter, FilterContext
 from oio.lifecycle.metrics import LifecycleAction, LifecycleMetricTracker, LifecycleStep
@@ -81,7 +83,7 @@ class LifecycleOperationLog(str, Enum):
     TRANSITION_ZIA = "S3.TRANSITION_ZIA.OBJECT"  # One zone IA
     TRANSITION_INT = "S3.TRANSITION_INT.OBJECT"  # Intelligent Tiering
     TRANSITION_GIR = "S3.TRANSITION_GIR.OBJECT"  # Glacier Instant
-    TRANSITION_OBJECT = "S3.TRANSITION.OBJECT"  # Glacier Flexible Retrival
+    TRANSITION_OBJECT = "S3.TRANSITION.OBJECT"  # Glacier Flexible Retrieval
     TRANSITION_GDA = "S3.TRANSITION_GDA.OBJECT"  # Glacier Deep Archive
     DELETE_UPLOAD = "S3.DELETE.UPLOAD"
 
@@ -124,11 +126,11 @@ class LifecycleActionContext:
 
     @property
     def account(self):
-        return self.event.data.get("account")
+        return get_account_from_event(self.event)
 
     @property
     def container(self):
-        return self.event.data.get("container")
+        return get_root_container_from_event(self.event)
 
     @property
     def bucket(self):
@@ -349,6 +351,7 @@ class LifecycleActions(Filter):
                     part_context = LifecycleActionContext(context.event)
                     # Force some info
                     part_context.event.data["container"] = segment_name
+                    part_context.event.url["user"] = segment_name
                     part_context.event.data["object"] = part_name
                     part_context.event.data["version"] = version
                     part_context.size = object_size
