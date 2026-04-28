@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright (C) 2015-2019 OpenIO SAS, as part of OpenIO SDS
 # Copyright (C) 2021-2026 OVH SAS
 #
@@ -30,6 +29,7 @@ from urllib.parse import urlencode, urlparse
 
 import yaml
 from confluent_kafka import OFFSET_END, TopicPartition
+from confluent_kafka.admin import AdminClient as KafkaAdminClient
 
 from oio.blob.utils import chunk_id_to_path
 from oio.common.configuration import load_namespace_conf, set_namespace_options
@@ -1044,6 +1044,42 @@ class BaseTestCase(CommonTestCase):
 
         cached_events.clear()
         used_events.clear()
+
+    def delete_kafka_records(self, kafka_consumer=None):
+        """
+        Delete all records in the test topic up to the current high watermark,
+        then clear the in-memory event cache.  This prevents events produced
+        during one test from leaking into a subsequent test's event consumer.
+        """
+        if not kafka_consumer:
+            kafka_consumer = self._cls_kafka_consumer
+        assert kafka_consumer._client is not None
+        partitions = kafka_consumer._client.assignment()
+        if not partitions:
+            return
+        endpoint = ",".join(
+            e[len("kafka://") :] if e.startswith("kafka://") else e
+            for e in self.conf["kafka_endpoints"].split(",")
+        )
+        admin = KafkaAdminClient({"bootstrap.servers": endpoint})
+        delete_targets = []
+        for part in partitions:
+            _, high_offset = kafka_consumer._client.get_watermark_offsets(
+                part, timeout=5
+            )
+            delete_targets.append(
+                TopicPartition(part.topic, part.partition, high_offset)
+            )
+        deadline = time.monotonic() + 10.0
+        for _, fut in admin.delete_records(delete_targets).items():
+            # Avoid fut.result() which deadlocks under eventlet: the
+            # concurrent.futures Condition.wait() hands off to the eventlet
+            # hub but is never woken up by the rdkafka native thread.
+            # Polling with time.sleep() (patched to eventlet.sleep) yields
+            # the hub on each iteration and lets rdkafka advance the future.
+            while not fut.done() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        self.clear_events()
 
     def wait_for_kafka_event(self, *args, **kwargs):
         return self.wait_for_event(*args, **kwargs)

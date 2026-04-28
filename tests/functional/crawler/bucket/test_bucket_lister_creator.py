@@ -1,4 +1,4 @@
-# Copyright (C) 2024-2025 OVH SAS
+# Copyright (C) 2024-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -29,7 +29,7 @@ from tests.functional.xcute.test_xcute import XcuteTest
 from tests.utils import BaseTestCase, random_str
 
 
-class App(object):
+class App:
     def __init__(self, app_env):
         self.app_env = app_env
 

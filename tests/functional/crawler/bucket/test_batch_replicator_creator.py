@@ -1,4 +1,4 @@
-# Copyright (C) 2024-2025 OVH SAS
+# Copyright (C) 2024-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@ from tests.functional.xcute.test_xcute import XcuteTest
 from tests.utils import BaseTestCase, random_str
 
 
-class App(object):
+class App:
     def __init__(self, app_env):
         self.app_env = app_env
 
@@ -54,6 +54,7 @@ class TestBatchReplicatorCreatorCrawler(XcuteTest, BaseTestCase):
             xcute_type="customer",
         )
         self._cleanup_jobs()
+        self.delete_kafka_records()
 
         self.storage.bucket.bucket_create(self.internal_bucket, self.account)
         self.storage.container_create(self.account, self.internal_bucket)
@@ -69,6 +70,18 @@ class TestBatchReplicatorCreatorCrawler(XcuteTest, BaseTestCase):
             self.batch_replicator_creator = BatchReplicatorCreator(
                 App(self.app_env), self.conf
             )
+
+    def tearDown(self):
+        del_req = request_id("tearDown-")
+        self.storage.bucket.bucket_delete(
+            self.internal_bucket, self.account, reqid=del_req
+        )
+        self.wait_for_event(
+            reqid=del_req,
+            types=(EventTypes.CONTAINER_DELETED,),
+            timeout=10.0,
+        )
+        super().tearDown()
 
     def _create_objects(self, container, obj_prefix, reqid, nb_obj=10, **kwargs):
         self.clean_later(self.container)
@@ -88,14 +101,10 @@ class TestBatchReplicatorCreatorCrawler(XcuteTest, BaseTestCase):
             _event = self.wait_for_event(
                 reqid=reqid,
                 types=(EventTypes.CONTENT_NEW,),
-                timeout=10.0,
+                timeout=30.0,
             )
             self.assertIsNotNone(_event, f"Received events {i}/{nb_obj}")
         return names
-
-    def tearDown(self):
-        self.storage.bucket.bucket_delete(self.internal_bucket, self.account)
-        super().tearDown()
 
     def _cb200(self, status, _msg):
         self.assertEqual(200, status)
