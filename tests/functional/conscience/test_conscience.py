@@ -234,10 +234,17 @@ class TestConscienceFunctional(BaseTestCase):
         one_rawx["scores"]["score.get"] = 1
         one_rawx["type"] = "rawx"
         self.conscience.lock_score(one_rawx)
-        time.sleep(0.1)  # Inter-conscience communication
 
-        all_rawx = self.conscience.all_services("rawx")
-        my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+        # Poll until the lock is propagated via inter-conscience communication
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            all_rawx = self.conscience.all_services("rawx")
+            my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+            if my_rawx.get("tags", {}).get("tag.lock"):
+                break
+            time.sleep(0.5)
+        else:
+            self.fail("Lock tag not propagated within 5s")
         self.assertIn("tag.lock", my_rawx["tags"])
         self.assertIn("tag.putlock", my_rawx["tags"])
         self.assertIn("tag.getlock", my_rawx["tags"])
@@ -271,10 +278,17 @@ class TestConscienceFunctional(BaseTestCase):
         one_rawx["scores"].pop("score.get")
         one_rawx["type"] = "rawx"
         self.conscience.lock_score(one_rawx)
-        time.sleep(0.1)  # Inter-conscience communication
 
-        all_rawx = self.conscience.all_services("rawx")
-        my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+        # Poll until the putlock is propagated via inter-conscience communication
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            all_rawx = self.conscience.all_services("rawx")
+            my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+            if my_rawx.get("tags", {}).get("tag.putlock"):
+                break
+            time.sleep(0.5)
+        else:
+            self.fail("Putlock tag not propagated within 5s")
         self.assertIn("tag.lock", my_rawx["tags"])
         self.assertIn("tag.putlock", my_rawx["tags"])
         self.assertIn("tag.getlock", my_rawx["tags"])
@@ -302,10 +316,17 @@ class TestConscienceFunctional(BaseTestCase):
         one_rawx["scores"]["score.get"] = 1
         one_rawx["type"] = "rawx"
         self.conscience.lock_score(one_rawx)
-        time.sleep(0.1)  # Inter-conscience communication
 
-        all_rawx = self.conscience.all_services("rawx")
-        my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+        # Poll until the getlock is propagated via inter-conscience communication
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            all_rawx = self.conscience.all_services("rawx")
+            my_rawx = [x for x in all_rawx if x["addr"] == one_rawx["addr"]][0]
+            if my_rawx.get("tags", {}).get("tag.getlock"):
+                break
+            time.sleep(0.5)
+        else:
+            self.fail("Getlock tag not propagated within 5s")
         self.assertIn("tag.lock", my_rawx["tags"])
         self.assertFalse(my_rawx["tags"]["tag.lock"])
         self.assertIn("tag.putlock", my_rawx["tags"])

@@ -207,7 +207,9 @@ class TestContentRebuildFilter(BaseTestCase):
 
     def _rebuild(self):
         self.wait_until_empty("oio-rebuild", "event-agent-rebuild")
-        time.sleep(2)
+        # Allow the rebuild worker to finish writing chunks after consuming
+        # the event (wait_until_empty only checks consumer lag, not completion).
+        time.sleep(3)
 
     def _remove_chunks(self, obj_meta, chunks):
         if not chunks:
