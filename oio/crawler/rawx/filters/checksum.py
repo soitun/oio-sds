@@ -182,7 +182,7 @@ class Checksum(Filter, RawxUpMixin):
         except exc.OioException as err:
             resp = RawxCrawlerError(
                 chunk=chunk,
-                body="while parsing chunk_id=%s, err=%s" % {chunk.chunk_id, str(err)},
+                body=f"while parsing chunk_id={chunk.chunk_id}, err={err}",
             )
             return resp(env, cb)
         except OSError:
