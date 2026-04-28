@@ -17,8 +17,8 @@ import argparse
 import sys
 
 from oio.account.backend_fdb import AccountBackendFdb
+from oio.cli import get_logger_from_args, make_logger_args_parser
 from oio.common.configuration import read_conf
-from oio.common.logger import get_logger
 
 
 class DeletedBucketReservationCleaner:
@@ -98,9 +98,11 @@ class DeletedBucketReservationCleaner:
 
 def make_arg_parser():
     """Create and configure the argument parser for the CLI."""
+    log_parser = make_logger_args_parser()
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[log_parser],
     )
     parser.add_argument(
         "--dry-run",
@@ -115,12 +117,6 @@ def make_arg_parser():
         "in each transaction (not just expired ones) (default: 1000)",
     )
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="More verbose output",
-    )
-    parser.add_argument(
         "configuration",
         help="Path to the account-server configuration file",
     )
@@ -131,14 +127,11 @@ def main():
     """Main entry point for the bucket reservation cleaner."""
     args = make_arg_parser().parse_args()
     conf = read_conf(args.configuration, "account-server")
-    # Remove logging configuration from conf to avoid using
-    # the account service-specific configuration
-    conf = {
-        k: v
-        for k, v in conf.items()
-        if not (k.startswith("log_") or k.startswith("syslog_"))
-    }
-    logger = get_logger(conf, verbose=args.verbose)
+    # syslog_prefix is account-server-specific; pop it so this binary's program
+    # name (basename of argv[0]) is used in syslog. Other log_* values from the
+    # conf can be inherited; CLI flags override them via get_logger_from_args.
+    conf.pop("syslog_prefix", None)
+    logger = get_logger_from_args(args, default_conf=conf)
 
     cleaner = DeletedBucketReservationCleaner(conf, logger)
     result = cleaner.run(batch_limit=args.batch_limit, dry_run=args.dry_run)
