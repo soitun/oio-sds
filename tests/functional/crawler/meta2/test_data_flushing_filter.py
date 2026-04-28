@@ -93,6 +93,7 @@ class DataFlushingFilter:
 
         created = self.storage.container_create(self.account, self.cname)
         self.assertTrue(created)
+        self.clean_later(self.cname)
 
         self.expected_successes = 0
         self.expected_skipped = 0

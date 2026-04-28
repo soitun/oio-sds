@@ -131,6 +131,7 @@ class TestContentRebuildFilter(BaseTestCase):
         self.ref = self.container
         self.container_client = self.storage.container
         self.container_client.container_create(self.account, self.container)
+        self.clean_later(self.container)
         syst = self.container_client.container_get_properties(
             self.account, self.container
         )["system"]
@@ -143,18 +144,6 @@ class TestContentRebuildFilter(BaseTestCase):
         )
         self.wait_for_score(("rawx", "meta2"), score_threshold=10, timeout=5.0)
         self.objects_created = []
-
-    def tearDown(self):
-        for obj in self.objects_created:
-            try:
-                self.storage.object_delete(self.account, self.container, obj)
-            except Exception as exc:
-                print(f"Failed to delete {self.account}/{self.container}/{obj}: {exc}")
-        try:
-            self.storage.container_delete(self.account, self.container)
-        except Exception as exc:
-            print(f"Failed to delete {self.account}/{self.container}: {exc}")
-        super().tearDown()
 
     def _create_event(self, obj_meta, present_chunks, missing_chunks):
         event = {}
