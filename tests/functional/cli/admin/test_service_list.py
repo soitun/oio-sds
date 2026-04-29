@@ -1,5 +1,5 @@
 # Copyright (C) 2019 OpenIO SAS, as part of OpenIO SDS
-# Copyright (C) 2022-2025 OVH SAS
+# Copyright (C) 2022-2026 OVH SAS
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library.
 
+import time
+
 from oio.common.utils import request_id
 from oio.event.evob import EventTypes
 from tests.functional.cli import CliTestCase
@@ -21,6 +23,13 @@ from tests.utils import random_str
 
 
 class ServiceListTest(CliTestCase):
+    def _meta2_list_containers(self, meta2, account):
+        opts = self.get_format_opts()
+        output = self.openio_admin(
+            "meta2 list containers %s %s --oio-account %s" % (meta2, opts, account)
+        )
+        return output.split("\n")
+
     def test_meta2_list_containers(self):
         container = "meta2_list_containers_" + random_str(3)
         reqid = request_id("mlc")
@@ -38,14 +47,17 @@ class ServiceListTest(CliTestCase):
         )
         self.assertIsNotNone(event)
 
-        opts = self.get_format_opts()
+        # The rdir index is updated asynchronously. Poll until the index is up to date.
         fullname = self.account + "/" + container
+        deadline = time.time() + 10.0
         for meta2 in meta2s:
-            output = self.openio_admin(
-                "meta2 list containers  %s %s --oio-account %s"
-                % (meta2, opts, self.account)
-            )
-            self.assertIn(fullname, output.split("\n"))
+            while fullname not in self._meta2_list_containers(meta2, self.account):
+                self.assertLess(
+                    time.time(),
+                    deadline,
+                    f"{fullname} not found in rdir for {meta2}",
+                )
+                time.sleep(0.5)
 
         reqid = request_id("mlc")
         output = self.storage.container_delete(self.account, container, reqid=reqid)
@@ -56,12 +68,15 @@ class ServiceListTest(CliTestCase):
         )
         self.assertIsNotNone(event)
 
+        deadline = time.time() + 10.0
         for meta2 in meta2s:
-            output = self.openio_admin(
-                "meta2 list containers %s %s --oio-account %s"
-                % (meta2, opts, self.account)
-            )
-            self.assertNotIn(fullname, output.split("\n"))
+            while fullname in self._meta2_list_containers(meta2, self.account):
+                self.assertLess(
+                    time.time(),
+                    deadline,
+                    f"{fullname} still in rdir for {meta2} after deletion",
+                )
+                time.sleep(0.5)
 
     def test_rawx_list_containers(self):
         container = "rawx_list_containers_" + random_str(3)
