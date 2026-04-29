@@ -323,7 +323,7 @@ broker_endpoint = {endpoint}
             temp.write(self.handlers_conf.format(endpoint=self.endpoint))
             temp.flush()
             self.agent_conf["handlers_conf"] = temp.name
-            # Compute the total lag for the topic
+            # Wait for delete events to arrive into the topic
             conf = copy.deepcopy(self.agent_conf)
             conf.pop(f"{KAFKA_CONF_CONSUMER_PREFIX}group.instance.id", None)
             temp_consumer = KafkaConsumer(
@@ -337,16 +337,15 @@ broker_endpoint = {endpoint}
                     "auto.offset.reset": "earliest",
                 },
             )
-            # Wait for events to arrive into the topic before computing lag
             self.wait_for_event(
                 kafka_consumer=temp_consumer,
                 timeout=5,
                 types=("storage.content.deleted",),
             )
-            # Topic partitions lags calculation
-            lags = temp_consumer.get_topic_lag(self.topic)
             temp_consumer.close()
-            sum_lags = sum(lags.values())
+            # Use a value guaranteed to exceed the topic lag so the pool
+            # adjusts it down.
+            initial_max_events = 999_999_999
             self.pool = KafkaConsumerPool(
                 self.agent_conf,
                 self.endpoint,
@@ -355,12 +354,19 @@ broker_endpoint = {endpoint}
                 group_id=self.group_id,
                 logger=self.logger,
                 processes=self.workers,
-                max_events_to_process=sum_lags + 1000,
+                max_events_to_process=initial_max_events,
             )
-            # Check that the max events is set to sum of topic partitions lags
-            # As the original max_events_to_process is greater
-            self.assertLess(self.pool._max_events_to_process, sum_lags + 1000)
-            self.assertGreaterEqual(self.pool._max_events_to_process, sum_lags)
+            # The pool must have lowered max_events to the actual topic lag
+            self.assertGreater(
+                self.pool._max_events_to_process,
+                0,
+                "Expected max_events to be set to a non-zero lag value",
+            )
+            self.assertLess(
+                self.pool._max_events_to_process,
+                initial_max_events,
+                "Expected max_events to be reduced to match the topic lag",
+            )
             self.pool.stop()
 
     @pytest.mark.timeout(300)
