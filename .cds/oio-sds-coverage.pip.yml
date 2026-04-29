@@ -14,13 +14,17 @@ jobs:
           - echo "deb [trusted=yes] http://read:{{.cds.proj.private_ovh_objectstorage_openio_read_password}}@last-private-ovh-objectstorage-openio.snap-priv.mirrors.ovh.net/ubuntu focal/main main" > /etc/apt/sources.list.d/snapmirror-ovh-objectstorage-openio.list
           - apt update
           - apt install -y ${GO_PACKAGE} jq lcov python3-virtualenv virtualenv
-          - echo "export PATH=/opt/${GO_PACKAGE}/bin:$HOME/go/bin:$PATH" >> $HOME/oio-env.sh
+          - gomod_hash=$(sha256sum rawx/go.sum | cut -c1-16)
+          - gomod_tag="gomod-${GO_PACKAGE}-${GOCOV_VERSION}-${gomod_hash}"
+          - worker cache pull "$gomod_tag" || true
+          - echo "export PATH={{.cds.workspace}}/go-cache/bin:/opt/${GO_PACKAGE}/bin:$HOME/go/bin:$PATH" >> $HOME/oio-env.sh
+          - '[ -d "{{.cds.workspace}}/go-cache/pkg/mod" ] && echo "export GOMODCACHE={{.cds.workspace}}/go-cache/pkg/mod" >> $HOME/oio-env.sh || true'
           - . $HOME/oio-env.sh
           - virtualenv -p /usr/bin/python3 $HOME/oiovenv
           - . $HOME/oiovenv/bin/activate
           - pip install --progress-bar off --upgrade pip
           - pip install --progress-bar off --upgrade awscli awscli-plugin-endpoint coverage virtualenv git+https://github.com/boyska/xq.git
-          - go install github.com/axw/gocov/gocov@latest
+          - command -v gocov >/dev/null || go install github.com/axw/gocov/gocov@${GOCOV_VERSION}
 
       - name: Download test result artifacts
         artifactDownload:

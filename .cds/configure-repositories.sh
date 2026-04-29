@@ -11,6 +11,10 @@ sed -i -E \
     -e 's/^(deb .*\.ubuntu\.com.*)$/#\1/' \
     /etc/apt/sources.list.d/* /etc/apt/sources.list || true
 
+# If we don't have gpg in the base image, the following will fail.
+# But we probably don't need Docker...
+command -v gpg >/dev/null || return 0
+
 # Docker repo for docker compose plugin should be removed after https://jira.ovhcloud.tools/browse/CORDEV-2545 completion
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg

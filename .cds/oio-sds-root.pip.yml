@@ -30,7 +30,7 @@ jobs:
       - name: Compile tinyproxy
         script: |+
           #!/bin/bash
-          TINYPROXY_VERSION="1.11.2"
+          TINYPROXY_VERSION="1.11.3"
           tag="tinyproxy"
           set -ex
           if ! worker cache pull $tag
@@ -43,6 +43,34 @@ jobs:
             cd tinyproxy-${TINYPROXY_VERSION}
             ./configure && make -j2
             worker cache push $tag src/tinyproxy
+          fi
+    requirements:
+      - model: ubuntu-focal
+
+  - job: Download Go modules
+    steps:
+      - name: Checkout application
+        checkout: '{{ .cds.workspace }}'
+      - name: Download Go modules and gocov
+        script: |+
+          #!/bin/bash
+          set -ex
+          . .cds/versions
+          gomod_hash=$(sha256sum rawx/go.sum | cut -c1-16)
+          gomod_tag="gomod-${GO_PACKAGE}-${GOCOV_VERSION}-${gomod_hash}"
+          if ! worker cache pull "$gomod_tag"
+          then
+            . .cds/configure-repositories.sh
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y ${GO_PACKAGE}
+            export PATH="/opt/${GO_PACKAGE}/bin:$PATH"
+            export GOMODCACHE="$PWD/go-cache/pkg/mod"
+            export GOBIN="$PWD/go-cache/bin"
+            mkdir -p "$GOMODCACHE" "$GOBIN"
+            (cd rawx && go mod download)
+            go install github.com/axw/gocov/gocov@${GOCOV_VERSION}
+            worker cache push "$gomod_tag" go-cache
           fi
     requirements:
       - model: ubuntu-focal

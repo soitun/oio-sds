@@ -1,5 +1,6 @@
 export DEB_SNAPSHOT="20230601-21h42m26s"
 export FDB_VERSION="6.3.23"
+export GOCOV_VERSION="v1.2.1"
 export GO_PACKAGE="go-1.23.4-ovh1645"
 export PYPI_SNAPSHOT="20260317-13h36m01s"
 # Please make sure PYTHON_PACKAGE from obsto-zookeeper is in sync

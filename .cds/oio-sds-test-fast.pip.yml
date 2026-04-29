@@ -23,8 +23,13 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y $(tr '\n' ' ' < .cds/deps-ubuntu-focal.txt) ${GO_PACKAGE} ${PYTHON_PACKAGE} ${ZOOKEEPER_PACKAGE}
+          # Restore Go module cache populated by the root pipeline
+          gomod_hash=$(sha256sum rawx/go.sum | cut -c1-16)
+          gomod_tag="gomod-${GO_PACKAGE}-${GOCOV_VERSION}-${gomod_hash}"
+          worker cache pull "$gomod_tag" || true
           # Configure environment
-          echo "export PATH=/opt/${GO_PACKAGE}/bin:/usr/lib/rust-${RUST_VERSION}/bin:/opt/${ZOOKEEPER_PACKAGE}/bin:/opt/${PYTHON_PACKAGE}/bin:$PATH" > $HOME/oio-env.sh
+          echo "export PATH=$PWD/go-cache/bin:/opt/${GO_PACKAGE}/bin:/usr/lib/rust-${RUST_VERSION}/bin:/opt/${ZOOKEEPER_PACKAGE}/bin:/opt/${PYTHON_PACKAGE}/bin:$PATH" > $HOME/oio-env.sh
+          [ -d "$PWD/go-cache/pkg/mod" ] && echo "export GOMODCACHE=$PWD/go-cache/pkg/mod" >> $HOME/oio-env.sh
           echo "export ZOOBINDIR=/opt/${ZOOKEEPER_PACKAGE}/bin"  >> $HOME/oio-env.sh
           echo "export ZOOLIBDIR=/opt/${ZOOKEEPER_PACKAGE}/lib"  >> $HOME/oio-env.sh
           echo "export ZOOINCDIR=/opt/${ZOOKEEPER_PACKAGE}/include/zookeeper"  >> $HOME/oio-env.sh
