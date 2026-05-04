@@ -10,10 +10,11 @@ jobs:
       - name: Install dependencies
         script:
           - . .cds/versions
+          - . .cds/configure-repositories.sh
           - export DEBIAN_FRONTEND=noninteractive
           - echo "deb [trusted=yes] http://read:{{.cds.proj.private_ovh_objectstorage_openio_read_password}}@last-private-ovh-objectstorage-openio.snap-priv.mirrors.ovh.net/ubuntu focal/main main" > /etc/apt/sources.list.d/snapmirror-ovh-objectstorage-openio.list
-          - apt update
-          - apt install -y ${GO_PACKAGE} jq lcov python3-virtualenv virtualenv
+          - apt-get update
+          - apt-get install -y ${GO_PACKAGE} jq lcov python3-virtualenv virtualenv
           - gomod_hash=$(sha256sum rawx/go.sum | cut -c1-16)
           - gomod_tag="gomod-${GO_PACKAGE}-${GOCOV_VERSION}-${gomod_hash}"
           - worker cache pull "$gomod_tag" || true
@@ -92,7 +93,7 @@ jobs:
         script:
           - . $HOME/oio-env.sh
           - cd {{.cds.workspace}}/rawx
-          - $HOME/go/bin/gocov report ../go_coverage.* >> ../go_coverage.txt
+          - gocov report ../go_coverage.* >> ../go_coverage.txt
 
       - name: Create code coverage directory
         script:

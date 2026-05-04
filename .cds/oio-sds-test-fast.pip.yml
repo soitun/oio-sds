@@ -16,6 +16,8 @@ jobs:
           #!/bin/bash
           set -x
           # We reload the repositories explicitly
+          systemctl stop apt-daily-upgrade.service
+          systemctl stop apt-daily.service
           systemctl disable --now apt-daily.timer
           systemctl disable --now apt-daily-upgrade.timer
           . .cds/versions

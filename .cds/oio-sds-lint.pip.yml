@@ -13,9 +13,13 @@ jobs:
           . .cds/versions
           export DEBIAN_FRONTEND=noninteractive
           eval $(worker key install --env-git proj-ssh-openio)
-          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
-          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-security main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
-          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-updates main" >> /etc/apt/sources.list.d/snapmirror-jammy.list
+          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy main universe" >> /etc/apt/sources.list.d/snapmirror-jammy.list
+          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-security main universe" >> /etc/apt/sources.list.d/snapmirror-jammy.list
+          echo "deb [trusted=yes] http://last-public.canonical.ubuntu.archive.snap.mirrors.ovh.net/ubuntu jammy-updates main universe" >> /etc/apt/sources.list.d/snapmirror-jammy.list
+          # Disable the VM-provided repositories, use only the repos provided above
+          sed -i -E \
+            -e 's/^(deb .*\.ubuntu\.com.*)$/#\1/' \
+            /etc/apt/sources.list.d/* /etc/apt/sources.list || true
           apt-get update
           apt-get install -y python3-virtualenv
           virtualenv -p /usr/bin/python3 $HOME/venv
