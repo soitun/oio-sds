@@ -590,6 +590,17 @@ class DeleteBucket(Lister):
     def get_parser(self, prog_name):
         parser = super(DeleteBucket, self).get_parser(prog_name)
         parser.add_argument(
+            "--force",
+            action="store_true",
+            default=False,
+            help=(
+                "Admin-only override: send the 'x-oio-bucket-variant: beta' "
+                "header on container/destroy so supermetaproxy treats the request "
+                "as a beta-stack delete and skips the guard that returns a fake "
+                "'not empty' to regular users during the beta period"
+            ),
+        )
+        parser.add_argument(
             "buckets", metavar="<bucket-name>", nargs="+", help="New bucket name(s)"
         )
         return parser
@@ -598,6 +609,9 @@ class DeleteBucket(Lister):
         self.log.debug("take_action(%s)", parsed_args)
 
         reqid = self.app.request_id(prefix="CLI-bucket-delete-")
+        destroy_headers = (
+            {"x-oio-bucket-variant": "beta"} if parsed_args.force else None
+        )
 
         results = []
         account = self.app.client_manager.account
@@ -621,7 +635,7 @@ class DeleteBucket(Lister):
             if success:
                 try:
                     self.app.client_manager.storage.container_delete(
-                        account, bucket, reqid=reqid
+                        account, bucket, reqid=reqid, headers=destroy_headers
                     )
                 except NoSuchContainer:
                     self.log.info("Root container %s does not exist", bucket)
