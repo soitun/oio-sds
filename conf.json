@@ -1038,6 +1038,11 @@
 		"code": "proxy_variables.c",
 		"header": "proxy_variables.h",
 		"variables": [
+			{ "type": "bool", "name": "oio_proxy_disable_more_noisy_access_logs",
+				"key": "proxy.disable_more_noisy_access_logs",
+				"def": false,
+				"descr": "When set to true, common errors (404) and success (20*) are not emitted by oio-proxy. Set to false by default. This variable is evaluated only if server.disable_noisy_access_logs is set to true." },
+
 			{ "type": "int", "name": "oio_proxy_local_prepare",
 				"key": "proxy.srv_local.prepare",
 				"descr": "Should the proxy allocate services with a local preference. 0 for no, 1 for only one local service and 2 for a maximum of services in spite of the location constraints. The value 2 is a quirk that should be avoided unless upon exceptional condition wherein you accept the risk.",

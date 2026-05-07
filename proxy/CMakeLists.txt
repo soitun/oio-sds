@@ -36,6 +36,15 @@ add_custom_command(
 		"proxy"
 		${CMAKE_SOURCE_DIR}/conf.json)
 
+add_library(httpthings STATIC
+	path_parser.c
+	transport_http.c
+	${CMAKE_CURRENT_BINARY_DIR}/proxy_variables.c)
+
+target_link_libraries(httpthings
+    metautils
+    server)
+
 add_executable(metacd_http
 	meta2v2_remote.c
 	metacd_http.c
@@ -48,14 +57,12 @@ add_executable(metacd_http
 	m2_actions.c
 	sqlx_actions.c
 	reply.c
-	path_parser.c
-	transport_http.c
-	shard_resolver.c
-	${CMAKE_CURRENT_BINARY_DIR}/proxy_variables.c)
+	shard_resolver.c)
 
 bin_prefix(metacd_http -proxy)
 
 target_link_libraries(metacd_http
+		httpthings
 		metautils server hcresolve
 		meta2v2utils
 		meta1remote sqlitereporemote

@@ -10,14 +10,13 @@ include_directories(BEFORE
 add_executable(
 	event_benchmark
 	event_benchmark.c
-	../../proxy/path_parser.c
-	../../proxy/transport_http.c
 	fake_service.c
 	event_worker.c
 	event_sender.c)
 
 bin_prefix(event_benchmark -event-benchmark)
 target_link_libraries(event_benchmark
+        httpthings
 		oioevents
 		server gridcluster
 		metautils

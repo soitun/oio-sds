@@ -2,7 +2,7 @@
 OpenIO SDS proxy
 Copyright (C) 2014 Worldline, as part of Redcurrant
 Copyright (C) 2015-2019 OpenIO SAS, as part of OpenIO SDS
-Copyright (C) 2021-2024 OVH SAS
+Copyright (C) 2021-2026 OVH SAS
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -22,6 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <metautils/lib/metautils.h>
 #include <metautils/lib/common_variables.h>
+#include <proxy/proxy_variables.h>
 #include <server/slab.h>
 #include <server/network_server.h>
 
@@ -342,8 +343,15 @@ sender(gpointer k, gpointer v, gpointer u)
 static void
 _access_log(struct req_ctx_s *r, gint status, gsize out_len, const gchar *tail)
 {
-	if (oio_disable_noisy_access_logs && r->access_disabled && 2 == (status / 100) && !GRID_DEBUG_ENABLED())
-		return;
+	if (oio_disable_noisy_access_logs && !GRID_DEBUG_ENABLED()) {
+		const gboolean is_success = (status >= 200 && status < 300);
+		// General accesslog inhibition
+		if (r->access_disabled && is_success)
+			return;
+		// JFS: Special management for the proxy that produces extreme amounts of logs
+		if (oio_proxy_disable_more_noisy_access_logs && (status == 404 || is_success))
+			return;
+	}
 
 	const char *reqid = g_tree_lookup(r->request->tree_headers, PROXYD_HEADER_REQID);
 

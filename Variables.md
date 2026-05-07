@@ -929,6 +929,14 @@ Used by `gcc`
  * type: gboolean
  * cmake directive: *OIO_PROXY_DIR_SHUFFLE*
 
+### proxy.disable_more_noisy_access_logs
+
+> When set to true, common errors (404) and success (20*) are not emitted by oio-proxy. Set to false by default. This variable is evaluated only if server.disable_noisy_access_logs is set to true.
+
+ * default: **FALSE**
+ * type: gboolean
+ * cmake directive: *OIO_PROXY_DISABLE_MORE_NOISY_ACCESS_LOGS*
+
 ### proxy.force.master
 
 > In a proxy, should the process ask the target service (with the help of an option in each RPC) to accept the RPC only if it is MASTER on that DB.

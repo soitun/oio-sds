@@ -40,13 +40,14 @@ add_custom_command(
 add_executable(rdir
 		rdir.c
 		routes.c
-		rdir_variables.c
-		../proxy/transport_http.c)
+		rdir_variables.c)
 
 bin_prefix(rdir -rdir-server)
 target_link_libraries(rdir
+        httpthings
 		metautils oiocore server
 		${LEVELDB_LIBRARIES})
+
 
 install(TARGETS rdir
 		LIBRARY DESTINATION ${LD_LIBDIR}
